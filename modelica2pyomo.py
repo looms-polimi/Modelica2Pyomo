@@ -1393,7 +1393,7 @@ timeSteps = [h for h in m.time]
 scaled_model = TransformationFactory('core.scale_model').create_using({modelName})
 use_idaes_solver_configuration_defaults()
 solver = SolverFactory("{solverName}")
-results = solver.solve(scaled_model, tee=True, logfile="log.txt")
+results = solver.solve(scaled_model, tee=True)
 TransformationFactory('core.scale_model').propagate_solution(scaled_model, {modelName})
 """
 
