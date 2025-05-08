@@ -393,9 +393,9 @@ def extractStepsAndRamps(baseModelica, equationStart):
     for index, row in enumerate(baseModelica[equationStart+1:]):
         if "(if time < " in row:
             if " else if time < " in row:
-                entries = re.search(r"=\s([\d\.]+)\s\+\s\(if\stime\s<\s([\d\.]+)\sthen\s([\d\.]+)\selse\sif\stime\s<\s([\d\.]+)\sthen\s(.+)\selse\s([\d\.]+)\);", row).groups()
+                entries = re.search(r"=\s(-?[0-9.]+e?[-+]?[0-9]*)\s\+\s\(if\stime\s<\s(-?[0-9.]+e?[-+]?[0-9]*)\sthen\s(-?[0-9.]+e?[-+]?[0-9]*)\selse\sif\stime\s<\s(-?[0-9.]+e?[-+]?[0-9]*)\sthen\s(.+)\selse\s(-?[0-9.]+e?[-+]?[0-9]*)\);", row).groups()
             else:
-                entries = re.search(r"=\s([\d\.]+)\s\+\s\(if\stime\s<\s([\d\.]+)\sthen\s([\d\.]+)\selse\s([\d\.]+)\);", row).groups()
+                entries = re.search(r"=\s(-?[0-9.]+e?[-+]?[0-9]*)\s\+\s\(if\stime\s<\s(-?[0-9.]+e?[-+]?[0-9]*)\sthen\s(-?[0-9.]+e?[-+]?[0-9]*)\selse\s(-?[0-9.]+e?[-+]?[0-9]*)\);", row).groups()
  
             name = re.search(r"^.+(?=(\s=))", row).group()  
             name = re.sub(r"\.","_", name)
@@ -403,9 +403,9 @@ def extractStepsAndRamps(baseModelica, equationStart):
             rowsToCancel.append(index+equationStart+1)
         elif "if time < " in row:
             if " else if time < " in row:
-                entries = re.search(r"if\stime\s<\s([\d\.]+)\sthen\s([\d\.]+)\selse\sif\stime\s<\s([\d\.]+)\sthen\s(.+)\selse\s([\d\.]+);", row).groups()
+                entries = re.search(r"if\stime\s<\s(-?[0-9.]+e?[-+]?[0-9]*)\sthen\s(-?[0-9.]+e?[-+]?[0-9]*)\selse\sif\stime\s<\s(-?[0-9.]+e?[-+]?[0-9]*)\sthen\s(.+)\selse\s(-?[0-9.]+e?[-+]?[0-9]*);", row).groups()
             else:
-                entries = re.search(r"if\stime\s<\s([\d\.]+)\sthen\s([\d\.]+)\selse\s([\d\.]+);", row).groups()
+                entries = re.search(r"if\stime\s<\s(-?[0-9.]+e?[-+]?[0-9]*)\sthen\s(-?[0-9.]+e?[-+]?[0-9]*)\selse\s(-?[0-9.]+e?[-+]?[0-9]*);", row).groups()
 
             name = re.search(r"^.+(?=(\s=))", row).group() 
             name = re.sub(r"\.","_", name)
