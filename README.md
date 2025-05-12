@@ -12,8 +12,8 @@ omc exampleInstantiation.mos > exampleBaseModelica.mo
 
 *modelica2pyomo.py* features a `m2p()` function, which should be executed to generate the *equivalent* Pyomo model.
 
-The file [example.py](./example.py) shows an example of how to call the `m2p()` function and which are the inputs to provide.
+The file [example.py](./example.py) shows an example of how to call the `m2p()` function and which are the inputs to provide. You can use it as a template for your own project.
 
-The generated Pyomo model employes the [IDAES](https://idaes-pse.readthedocs.io/en/stable/index.html) Python package to employ the optimization solver IPOPT. For this reason, few lines of code to import the idaes package are included in the Pyomo script.
+The generated Pyomo model employes the [IDAES](https://idaes-pse.readthedocs.io/en/stable/index.html) Python package to employ the optimization solver IPOPT. For this reason, few lines of code to import the idaes package are included in the generated Pyomo code.
 
 Notice also that the Python packages [numpy](https://numpy.org/), [scipy](https://scipy.org/), [DyMat](https://github.com/jraedler/DyMat) and [regex](https://github.com/mrabarnett/mrab-regex) are required.
