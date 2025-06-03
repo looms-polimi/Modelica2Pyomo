@@ -2,6 +2,7 @@ import re
 import DyMat
 import regex
 import sys
+import scipy.io as sio
 
 # Execute the m2p() function with the appropriate inputs in a separate script as showed in the script *example.py*
 
@@ -616,7 +617,7 @@ def textDERpyomoCode(statesDict, modelName, initializationValues, dictInitValues
         stringNormDer = f"{modelName}.scaling_factor[{modelName}.DER{state}] = {modelName}.scaling_factor[{modelName}.{state}]*dt" # Employing scaling factor of state 
         DERpyomoCode.append(stringNormDer)
         DERpyomoCode.append("\n")
-    return DERpyomoCode
+    return DERpyomoCode, stateToDerMap
 
 def initialConditionsPyomoCode(modelName, initMode, baseModelica, equationStart, initialEquationStart, 
                                   statesDict, initializationValues = None, dictInitValues = None):
@@ -637,7 +638,7 @@ def initialConditionsPyomoCode(modelName, initMode, baseModelica, equationStart,
     # Function to add model_name before every variable (not log, sqrt, exp, sin)
     def replace(match):
         word = match.group(0)
-        if word in ["log", "sqrt", "exp", "sin", "cos"]:
+        if word in ["log", "sqrt", "exp", "sin", "cos", "tanh"]:
             return word
         else:
             return modelName + "." + word
@@ -645,7 +646,7 @@ def initialConditionsPyomoCode(modelName, initMode, baseModelica, equationStart,
     def addInitialIndex(match):
         # Function to add [0] index to variables
         word = match.group(0)
-        if word in ["log", "sqrt", "exp", "cos", "sin"]:
+        if word in ["log", "sqrt", "exp", "cos", "sin", "tanh"]:
             return word
         else:
             return word + "[tStart]"
@@ -715,7 +716,7 @@ def initialConditionsPyomoCode(modelName, initMode, baseModelica, equationStart,
 def addTimeIndex(match):
         # Function to add time index to variables if dynamic problem is considered
         word = match.group(0)
-        if word in ["log", "sqrt", "exp", "cos", "sin"]:
+        if word in ["log", "sqrt", "exp", "cos", "sin", "tanh"]:
             return word
         else:
             return word + "[t]"
@@ -733,7 +734,7 @@ def textConstraintsPyomoCode(baseModelica, equationStart, modelName, variablesDi
     # Function to add model_name before every variable (not log, sqrt, exp, sin)
     def replace(match):
         word = match.group(0)
-        if word in ["log", "sqrt", "exp", "sin", "cos"]:
+        if word in ["log", "sqrt", "exp", "sin", "cos", "tanh"]:
             return word
         else:
             return modelName + "." + word
@@ -796,7 +797,16 @@ def textConstraintsPyomoCode(baseModelica, equationStart, modelName, variablesDi
                     # Substitute the homotopy expression with the actual expression
                     row = regex.sub("homotopy(\((?:[^()]+|(?1))*\))", completeExpression, row)
                 except AttributeError:
-                    pass
+                    print("Attribute error handling homotopy!")
+            
+            if " tanh(" in row:
+                try:
+                    tanhArg = regex.search(r"tanh(\((?:[^()]+|(?1))*\))", row).group(1)
+                    tnahAllToSub = "tanh" + tanhArg
+                    newTanhExpr = f"(exp(2*{tanhArg})-1)/(exp(2*{tanhArg})+1)"
+                    row = regex.sub(r"tanh(\((?:[^()]+|(?1))*\))",newTanhExpr,row)
+                except:
+                    print("Error with tanh substitution!")
             
             # Look for equations of the type a = \d*; --> they will be converted into m.a.fix(...) (\d* stands for a generic number))
             fixingPattern = re.search(r'^\s*[a-zA-Z0-9_.\[\]]+\s=\s[0-9.]+e{0,1}[e\-]{0,1}[0-9]*\s{0,1}[^+*^/\-]+$',row)
@@ -909,7 +919,7 @@ def textConstraintsPyomoCode(baseModelica, equationStart, modelName, variablesDi
 def fixedFalseParams(baseModelica, modelName, initialEquationStart, equationStart, staticOrDynamic, initializationValues, dictInitValues):
     def replace(match):
         word = match.group(0)
-        if word in ["log", "sqrt", "exp", "sin", "cos"]:
+        if word in ["log", "sqrt", "exp", "sin", "cos", "tanh"]:
             return word
         else:
             return modelName + "." + word
@@ -917,7 +927,7 @@ def fixedFalseParams(baseModelica, modelName, initialEquationStart, equationStar
     def addInitialIndex(match):
         # Function to add [0] index to variables
         word = match.group(0)
-        if word in ["log", "sqrt", "exp", "cos", "sin"]:
+        if word in ["log", "sqrt", "exp", "cos", "sin", "tanh"]:
             return word
         else:
             return word + "[tStart]"
@@ -1066,7 +1076,7 @@ def identifyResultsAbscissa(initializationValuesDict):
 
     return listOfAbscissaVects, varAbscissaDict
 
-def writeTextDynamicTrajectoryInit(modelName, modelicaResults, variablesDict, varAbscissaDict, indicesTimeStepsModelicaSim, dictInitValues, replVarLogDict, statesDict):
+def writeTextDynamicTrajectoryInit(modelName, modelicaResults, variablesDict, varAbscissaDict, indicesTimeStepsModelicaSim, dictInitValues, replVarLogDict, statesDict, stateToDerMap):
     trajInitLineList = [f"import DyMat\nresForInitTraj = DyMat.DyMatFile('{modelicaResults}')\n"]
     for indexVect in indicesTimeStepsModelicaSim.keys():
         trajInitLineList.append(f"abscissa{indexVect} = {indicesTimeStepsModelicaSim[indexVect]}\n")    
@@ -1080,7 +1090,7 @@ def writeTextDynamicTrajectoryInit(modelName, modelicaResults, variablesDict, va
     trajInitLineList.append(trajInitStringBeginFor[:-2] + trajInitStringSecondPartFor[:-2] + "):\n")
 
     for var in variablesDict.keys():
-            trajInitLineList.append(f"\t{modelName}.{variablesDict[var]['pyomoName']}[t] = resForInitTraj['{dictInitValues[var]}'][indAbscissa{varAbscissaDict[var]}]\n")
+            trajInitLineList.append(f"\t{modelName}.{variablesDict[var]['pyomoName']}[t] = resForInitTraj['{dictInitValues[var]}'][indAbscissa{varAbscissaDict[dictInitValues[var]]}]\n")
     
     for subLogVar in replVarLogDict.keys():
         trajInitLineList.append(f"\t{modelName}.u{subLogVar}[t] = log({replVarLogDict[subLogVar]})\n")
@@ -1088,12 +1098,76 @@ def writeTextDynamicTrajectoryInit(modelName, modelicaResults, variablesDict, va
     for state in statesDict.keys():
         derVarModelicaName = f"der({state})"
         derVarPyomoName = f"DER{statesDict[state]}"
-        trajInitLineList.append(f"\t{modelName}.{derVarPyomoName}[t] = resForInitTraj['{dictInitValues[derVarModelicaName]}'][indAbscissa{varAbscissaDict[state]}]\n")
+        trajInitLineList.append(f"\t{modelName}.{derVarPyomoName}[t] = resForInitTraj['{stateToDerMap[dictInitValues[state]]}'][indAbscissa{varAbscissaDict[dictInitValues[state]]}]\n")
     
     trajInitLineList.append("\n")    
 
     return trajInitLineList
     
+def adaptedInitDict(timeSteps, initializationValues):
+    newDynamicInitDict = dict()
+    for var in initializationValues.names():
+        # print(f"The var that is being analyzed is {var}")
+        values = []
+        currentModelicaIndex = 0
+        for i in range(len(timeSteps)):
+            if i == 0:
+                if timeSteps[i] != 0:
+                    # print("ERROR: Your initial time step is not zero!")
+                    break
+                else:
+                    values.append(initializationValues[var][0])
+                    # print(f"Init values assigned at time zero: {initializationValues[var][0]}")
+                    currentModelicaIndex += 1
+                    # print(f"Updating currentModelicaIndex to: {currentModelicaIndex}")
+            else:
+                if timeSteps[i] == initializationValues.abscissa(var)[0][currentModelicaIndex]:
+                    values.append(initializationValues[var][currentModelicaIndex])
+                    # print(f"Found a Pyomo timeStep {timeSteps[i]} equivalent to the Modelica one {initializationValues.abscissa(var)[0][currentModelicaIndex]}!")
+                    # print(f"Assigned value is {initializationValues[var][currentModelicaIndex]}")
+                    currentModelicaIndex += 1
+                    # print(f"Updating currentModelicaIndex to: {currentModelicaIndex}")
+                else:
+                    if timeSteps[i] > initializationValues.abscissa(var)[0][currentModelicaIndex]:
+                        # print(f"The current Pyomo Index {timeSteps[i]} is > Modelica index {initializationValues.abscissa(var)[0][currentModelicaIndex]}")
+                        while timeSteps[i] > initializationValues.abscissa(var)[0][currentModelicaIndex]:
+                            # print(f"While loop: the current Pyomo Index {timeSteps[i]} is > Modelica index {initializationValues.abscissa(var)[0][currentModelicaIndex]}")
+                            currentModelicaIndex += 1
+                            # print(f"Updating currentModelicaIndex to: {currentModelicaIndex}")
+                    # print(f"The current Pyomo Index {timeSteps[i]} is < Modelica index {initializationValues.abscissa(var)[0][currentModelicaIndex]}")
+                    y1 = initializationValues[var][currentModelicaIndex-1]
+                    y2 = initializationValues[var][currentModelicaIndex]
+                    x1 = initializationValues.abscissa(var)[0][currentModelicaIndex-1]
+                    x2 = initializationValues.abscissa(var)[0][currentModelicaIndex]
+                    values.append(y1+(timeSteps[i]-x1)/(x2-x1)*(y2-y1))
+                    # print(f"Assigned value is {y1+(timeSteps[i]-x1)/(x2-x1)*(y2-y1)}")
+        newDynamicInitDict[var] = values
+                
+    return newDynamicInitDict
+
+def writeTextDynamicTrajectoryInitNEW(modelName, dictInitValues, adaptedResFilePath, variablesDict, replVarLogDict, statesDict, stateToDerMap):
+    trajInitList = [f"import scipy.io as sio\nresForInitTraj = sio.loadmat('{adaptedResFilePath}')\n"]
+    trajInitList.append("for t,i in zip(timeSteps, range(len(timeSteps))):\n")
+
+    for var in variablesDict.keys():
+            try:
+                trajInitList.append(f"\t{modelName}.{variablesDict[var]['pyomoName']}[t] = resForInitTraj['{dictInitValues[var]}'][0][i]\n")
+            except:
+                print()
+    
+    for subLogVar in replVarLogDict.keys():
+        trajInitList.append(f"\t{modelName}.u{subLogVar}[t] = log({replVarLogDict[subLogVar]})\n")
+    
+    for state in statesDict.keys():
+        derVarPyomoName = f"DER{statesDict[state]}"
+        try:
+            trajInitList.append(f"\t{modelName}.{derVarPyomoName}[t] = resForInitTraj['{stateToDerMap[dictInitValues[state]]}'][0][i]\n")
+        except:
+            print()
+    
+    trajInitList.append("\n")
+
+    return trajInitList                                                     
 
 def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, staticOrDynamic, initConditions, initTrajectory,
          customLinesBeforeSettings, customLinesAfterSettings, tStart = 0, tEnd = 1, bounds = True,
@@ -1164,6 +1238,9 @@ def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, stati
         
             listOfAbscissaVects, varAbscissaDict = identifyResultsAbscissa(initializationValues)
             indicesTimeStepsModelicaSim = mapTimeSteps(listOfAbscissaVects, timeSteps)
+            newDynamicInitDict = adaptedInitDict(timeSteps, initializationValues)
+            adaptedResFilePath = "./dynamicInitDict"
+            sio.savemat(adaptedResFilePath, newDynamicInitDict, format='4')                                                                 
     
     except:
         initializationValues = None
@@ -1242,7 +1319,7 @@ def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, stati
         subLogVarsPyomoCode.insert(0,"# Instantiating the variables for the log arguments manipulation\n")
 
     # Handling DER variables and writing the Pyomo code
-    DERpyomoCode = textDERpyomoCode(statesDict, modelName, initializationValues, dictInitValues)
+    DERpyomoCode, stateToDerMap = textDERpyomoCode(statesDict, modelName, initializationValues, dictInitValues)
     if DERpyomoCode != []:
         DERpyomoCode.insert(0,"# Instantiating the variables for the time derivatives\n")
 
@@ -1257,8 +1334,9 @@ def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, stati
 
     # Initial guesses code for dynamic initial trajectories 
     if staticOrDynamic == "Dynamic" and initTrajectory == "Dynamic":
-        textDynamicTrajectoryInit = writeTextDynamicTrajectoryInit(modelName, modelicaResults, variablesDict, varAbscissaDict, 
-                                                                   indicesTimeStepsModelicaSim, dictInitValues, replVarLogDict, statesDict)
+        # textDynamicTrajectoryInit = writeTextDynamicTrajectoryInit(modelName, modelicaResults, variablesDict, varAbscissaDict, 
+        #                                                            indicesTimeStepsModelicaSim, dictInitValues, replVarLogDict, statesDict, stateToDerMap)
+        textDynamicTrajectoryInit = writeTextDynamicTrajectoryInitNEW(modelName, dictInitValues, adaptedResFilePath, variablesDict, replVarLogDict, statesDict, stateToDerMap)
         if textDynamicTrajectoryInit != []:
             textDynamicTrajectoryInit.insert(0,"# Code for the guessed initial trajectories for the variables of the problem\n")
     else:
