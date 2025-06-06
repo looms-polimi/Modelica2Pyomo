@@ -800,11 +800,12 @@ def textConstraintsPyomoCode(baseModelica, equationStart, modelName, variablesDi
                     print("Attribute error handling homotopy!")
             
             if " tanh(" in row:
+                pattern = regex.compile(r"tanh(\((?:[^()]+|(?1))*\))")
                 try:
-                    tanhArg = regex.search(r"tanh(\((?:[^()]+|(?1))*\))", row).group(1)
-                    tnahAllToSub = "tanh" + tanhArg
-                    newTanhExpr = f"(exp(2*{tanhArg})-1)/(exp(2*{tanhArg})+1)"
-                    row = regex.sub(r"tanh(\((?:[^()]+|(?1))*\))",newTanhExpr,row)
+                    for tanhArg in regex.findall(pattern,row):
+                        newTanhExpr = f"(exp(2*{tanhArg})-1)/(exp(2*{tanhArg})+1)"
+                        target = re.escape("tanh"+tanhArg)
+                        row = regex.sub(target,newTanhExpr,row)
                 except:
                     print("Error with tanh substitution!")
             
