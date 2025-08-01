@@ -51542,7 +51542,7 @@ def trap(points,timeSteps):
     return seq
 
 
-points = [(0,13.431508), (10,13.431508), (15,10), (50,10), (80, 15.5), (120,15.5)] # WORKING
+points = [(0,13.431508), (20,13.431508), (25,10), (60,10), (90, 15.5), (120,15.5)] # WORKING
 
 powerProfile = trap(points,timeSteps)
 
