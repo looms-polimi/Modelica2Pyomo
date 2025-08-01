@@ -344,7 +344,7 @@ def timeTableOnFileHandler(timeTablesDict):
 
     return timeTablesDict
 
-def timeTablesConstraintPyomoCode(timeTablesDict, modelName, staticOrDynamic):
+def timeTablesConstraintPyomoCode(timeTablesDict, modelName, staticOrDynamic, initTrajectory, useResultsForTable):
     # First version of this function is 
     pyomoTableCode = []
     if staticOrDynamic == "Static":
@@ -358,31 +358,40 @@ def timeTablesConstraintPyomoCode(timeTablesDict, modelName, staticOrDynamic):
                     pyomoTableCode.append(string)
 
     if staticOrDynamic == "Dynamic":
-        for tableName in timeTablesDict.keys():
-            if (timeTablesDict[tableName]["smoothness"] != "Modelica.Blocks.Types.Smoothness.ConstantSegments") or (timeTablesDict[tableName]["smoothness"] != "Modelica.Blocks.Types.Smoothness.LinearSegments"):
-                print(f"Table {tableName} will linearly interpolate the data! Attention!")
-            if timeTablesDict[tableName]["smoothness"] == "Modelica.Blocks.Types.Smoothness.ConstantSegments":
-                # pyomoTableCode.append("from scipy.interpolate import make_interp_spline\n\n")
-                pyomoTableCode.append("from scipy import interpolate\n\n")
-            table = timeTablesDict[tableName]["tableSeries"]
-            timeVector = table["Time"]
-            for output in table.keys():
-                if output == "Time":
-                    continue
-                else:
-                    valueVector = table[output]
-                    string = f"{tableName}_{output}_time = {timeVector}\n"
-                    string += f"{tableName}_{output}_values = {valueVector}\n"
-                    if timeTablesDict[tableName]["smoothness"] == "Modelica.Blocks.Types.Smoothness.ConstantSegments":
-                        # string += f"f{output} = make_interp_spline({tableName}_{output}_time, {tableName}_{output}_values, k=0)\n"
-                        string += f"f{output} = interpolate.interp1d({tableName}_{output}_time, {tableName}_{output}_values, kind = 'previous')\n"
-                        string += f"{tableName}_{output}_interp = f{output}(timeSteps)\n"
+        if initTrajectory == "Dynamic" and useResultsForTable == True:
+            pyomoTableCode.append("for i in timeSteps:\n")
+            for tableName in timeTablesDict.keys():
+                table = timeTablesDict[tableName]["tableSeries"]
+                for output in table.keys():
+                    if output == "Time":
+                        continue
+                    pyomoTableCode.append(f"\t{modelName}.{tableName}_{output}[i].fix()\n")
+        else:
+            for tableName in timeTablesDict.keys():
+                if (timeTablesDict[tableName]["smoothness"] != "Modelica.Blocks.Types.Smoothness.ConstantSegments") and (timeTablesDict[tableName]["smoothness"] != "Modelica.Blocks.Types.Smoothness.LinearSegments"):
+                    print(f"Table {tableName} will linearly interpolate the data! Attention!")
+                if timeTablesDict[tableName]["smoothness"] == "Modelica.Blocks.Types.Smoothness.ConstantSegments":
+                    # pyomoTableCode.append("from scipy.interpolate import make_interp_spline\n\n")
+                    pyomoTableCode.append("from scipy import interpolate\n\n")
+                table = timeTablesDict[tableName]["tableSeries"]
+                timeVector = table["Time"]
+                for output in table.keys():
+                    if output == "Time":
+                        continue
                     else:
-                        string += f"{tableName}_{output}_interp =  np.interp(timeSteps, {tableName}_{output}_time, {tableName}_{output}_values)\n"
-                    string += f"for i,j in zip(timeSteps,range(len(timeSteps))):\n\t{modelName}.{tableName}_{output}[i].fix({tableName}_{output}_interp[j])\n\n"
-                    # print(string)
-                    pyomoTableCode.append(string)
-                    pass
+                        valueVector = table[output]
+                        string = f"{tableName}_{output}_time = {timeVector}\n"
+                        string += f"{tableName}_{output}_values = {valueVector}\n"
+                        if timeTablesDict[tableName]["smoothness"] == "Modelica.Blocks.Types.Smoothness.ConstantSegments":
+                            # string += f"f{output} = make_interp_spline({tableName}_{output}_time, {tableName}_{output}_values, k=0)\n"
+                            string += f"f{output} = interpolate.interp1d({tableName}_{output}_time, {tableName}_{output}_values, kind = 'previous')\n"
+                            string += f"{tableName}_{output}_interp = f{output}(timeSteps)\n"
+                        else:
+                            string += f"{tableName}_{output}_interp =  np.interp(timeSteps, {tableName}_{output}_time, {tableName}_{output}_values)\n"
+                        string += f"for i,j in zip(timeSteps,range(len(timeSteps))):\n\t{modelName}.{tableName}_{output}[i].fix({tableName}_{output}_interp[j])\n\n"
+                        # print(string)
+                        pyomoTableCode.append(string)
+                        pass
 
     return pyomoTableCode
 
@@ -1244,6 +1253,7 @@ def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, stati
             sio.savemat(adaptedResFilePath, newDynamicInitDict, format='4')                                                                 
     
     except:
+        print("Setting the initial value dictionary to None! Issues in loading or handling the initial values dictionary")
         initializationValues = None
         dictInitValues = None
     
@@ -1270,7 +1280,7 @@ def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, stati
 
     if timeTablesDict != {}:
         # If TimeTable or CombiTimeTable data are available, write the Pyomo code of such tables
-        pyomoTableCode = timeTablesConstraintPyomoCode(timeTablesDict, modelName, staticOrDynamic)
+        pyomoTableCode = timeTablesConstraintPyomoCode(timeTablesDict, modelName, staticOrDynamic, initTrajectory, False)
         if pyomoTableCode != []:
             pyomoTableCode.insert(0,"# Code for the instantiation of the time tables\n")
     else:
