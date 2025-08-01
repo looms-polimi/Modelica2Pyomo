@@ -37,7 +37,7 @@ m.scaling_factor = Suffix(direction=Suffix.EXPORT)
 numOfIntervals = 35
 ncp = 3
 tStart = 0
-tEnd = 100
+tEnd = 120
 m.time = ContinuousSet(initialize = np.linspace(tStart,tEnd,numOfIntervals+1))
 dt = tEnd/(numOfIntervals+1)/ncp
 
@@ -51542,7 +51542,7 @@ def trap(points,timeSteps):
     return seq
 
 
-points = [(0,13.431508), (10,13.431508), (15,10), (50,10), (80, 15.5), (100,15.5)] # WORKING
+points = [(0,13.431508), (10,13.431508), (15,10), (50,10), (80, 15.5), (120,15.5)] # WORKING
 
 powerProfile = trap(points,timeSteps)
 
