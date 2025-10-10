@@ -1035,12 +1035,38 @@ def textSubLogVarsPyomoCode(replVarLogDict, modelName, staticOrDynamic):
     if staticOrDynamic == "Dynamic":
         for i in range(n):
             # stringInit = re.sub(pattern, addValue, replVarLogDict[i+1])
+            # print(replVarLogDict[i+1])
+            # print()
+            logArgumentComponents = re.sub(r"\[t\]", "",replVarLogDict[i+1])
+            logArgumentComponents = logArgumentComponents.split()
+            tryNominal = ""
+            for elem in logArgumentComponents:
+                if "m." in elem:
+                    newElem = re.sub(r"(m\.[\w\_\d\.]+)", r"1/m.scaling_factor[\1]",elem)
+                    tryNominal += newElem
+                else:
+                    tryNominal += elem
+                tryNominal += " "
+            stringNominal = f"if {tryNominal} == 1:\n\tm.scaling_factor[{modelName}.u{i+1}] = 1\nelse:\n\tm.scaling_factor[{modelName}.u{i+1}] = 1/log({tryNominal})\n\n"  
+
             logArgument = re.sub(r"\[t\]", r"[m.time.ordered_data()[0]]",replVarLogDict[i+1])
-            subLogVarsPyomoCode.append(f"{modelName}.u{i+1} = Var(m.time, initialize = log(" + logArgument + f"), within = Reals)\nm.scaling_factor[{modelName}.u{i+1}] = 1\n")
+            
+            subLogVarsPyomoCode.append(f"{modelName}.u{i+1} = Var(m.time, initialize = log(" + logArgument + f"), within = Reals)\n{stringNominal}")#m.scaling_factor[{modelName}.u{i+1}] = 1\n")
     elif staticOrDynamic == "Static":
         for i in range(n):
+            logArgumentComponents = replVarLogDict[i+1].split()
+            tryNominal = ""
+            for elem in logArgumentComponents:
+                if "m." in elem:
+                    newElem = re.sub(r"(m\.[\w\_\d\.]+)", r"1/m.scaling_factor[\1]",elem)
+                    tryNominal += newElem
+                else:
+                    tryNominal += elem
+                tryNominal += " "
+            stringNominal = f"if {tryNominal} == 1:\n\tm.scaling_factor[{modelName}.u{i+1}] = 1\nelse:\n\tm.scaling_factor[{modelName}.u{i+1}] = 1/log({tryNominal})\n\n"  
+
             stringInit = re.sub(pattern, addValue, replVarLogDict[i+1])
-            subLogVarsPyomoCode.append(f"{modelName}.u{i+1} = Var(initialize = log(" + stringInit + f"), within = Reals)\nm.scaling_factor[{modelName}.u{i+1}] = 1\n")
+            subLogVarsPyomoCode.append(f"{modelName}.u{i+1} = Var(initialize = log(" + stringInit + f"), within = Reals)\n{stringNominal}\n")
     
     if subLogVarsPyomoCode != []:
         subLogVarsPyomoCode.append("\n")
@@ -1181,7 +1207,7 @@ def writeTextDynamicTrajectoryInitNEW(modelName, dictInitValues, adaptedResFileP
 
 def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, staticOrDynamic, initConditions, initTrajectory,
          customLinesBeforeSettings, customLinesAfterSettings, tStart = 0, tEnd = 1, bounds = True,
-         subLog = False, dynTransfOpt = dict()):
+         subLog = False, dynTransfOpt = dict(), initTrajectoryMatFileName = "dynamicInitDict"):
     # This is the main function of this script. You should call this function in another script as shown in *example.py* to generate the Pyomo model
     # Input description:
     # - modelicaModel: string containing the path of the modelica model to translate into a Pyomo model
@@ -1249,7 +1275,7 @@ def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, stati
             listOfAbscissaVects, varAbscissaDict = identifyResultsAbscissa(initializationValues)
             indicesTimeStepsModelicaSim = mapTimeSteps(listOfAbscissaVects, timeSteps)
             newDynamicInitDict = adaptedInitDict(timeSteps, initializationValues)
-            adaptedResFilePath = "./dynamicInitDict"
+            adaptedResFilePath = f"./{initTrajectoryMatFileName}"
             sio.savemat(adaptedResFilePath, newDynamicInitDict, format='4')                                                                 
     
     except:

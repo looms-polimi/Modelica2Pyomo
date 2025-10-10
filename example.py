@@ -4,7 +4,7 @@ pathParser = "" # Here assign the complete path of the parser.py file
 
 sys.path.append(pathParser)
 
-import parser as ps
+import modelica2pyomo as ps
 
 # PATHS
 modelica_model = "" # String containing the path of the BaseModelica file obtained instantiating the Modelica file with exampleInstantiation.mos
