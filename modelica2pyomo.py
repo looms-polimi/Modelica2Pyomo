@@ -1034,36 +1034,26 @@ def textSubLogVarsPyomoCode(replVarLogDict, modelName, staticOrDynamic):
     n = len(replVarLogDict.keys())
     if staticOrDynamic == "Dynamic":
         for i in range(n):
-            # stringInit = re.sub(pattern, addValue, replVarLogDict[i+1])
-            # print(replVarLogDict[i+1])
-            # print()
-            logArgumentComponents = re.sub(r"\[t\]", "",replVarLogDict[i+1])
-            logArgumentComponents = logArgumentComponents.split()
-            tryNominal = ""
-            for elem in logArgumentComponents:
-                if "m." in elem:
-                    newElem = re.sub(r"(m\.[\w\_\d\.]+)", r"1/m.scaling_factor[\1]",elem)
-                    tryNominal += newElem
-                else:
-                    tryNominal += elem
-                tryNominal += " "
-            stringNominal = f"if {tryNominal} == 1:\n\tm.scaling_factor[{modelName}.u{i+1}] = 1\nelse:\n\tm.scaling_factor[{modelName}.u{i+1}] = 1/log({tryNominal})\n\n"  
+            logArgumentComponents = re.sub(r"\[t\]", f"[{modelName}.time.ordered_data()[0]]",replVarLogDict[i+1])
+            stringNominal = (f"varList = list(identify_variables(log({logArgumentComponents})))\n"
+                             f"listScaling = []\n"
+                             f"for var in varList:\n"
+                             f"\tvarName = re.sub(r'\[.*\]', '', str(var))\n"
+                             f"\tvarName = \"{modelName}.\" + varName\n"
+                             f"\tlistScaling.append(abs(differentiate(log({logArgumentComponents}), wrt=var)/{modelName}.scaling_factor[eval(varName)]))\n"
+                             f"{modelName}.scaling_factor[{modelName}.u{i+1}] = 1/max(listScaling)\n")
 
             logArgument = re.sub(r"\[t\]", r"[m.time.ordered_data()[0]]",replVarLogDict[i+1])
             
             subLogVarsPyomoCode.append(f"{modelName}.u{i+1} = Var(m.time, initialize = log(" + logArgument + f"), within = Reals)\n{stringNominal}")#m.scaling_factor[{modelName}.u{i+1}] = 1\n")
     elif staticOrDynamic == "Static":
         for i in range(n):
-            logArgumentComponents = replVarLogDict[i+1].split()
-            tryNominal = ""
-            for elem in logArgumentComponents:
-                if "m." in elem:
-                    newElem = re.sub(r"(m\.[\w\_\d\.]+)", r"1/m.scaling_factor[\1]",elem)
-                    tryNominal += newElem
-                else:
-                    tryNominal += elem
-                tryNominal += " "
-            stringNominal = f"if {tryNominal} == 1:\n\tm.scaling_factor[{modelName}.u{i+1}] = 1\nelse:\n\tm.scaling_factor[{modelName}.u{i+1}] = 1/log({tryNominal})\n\n"  
+            stringNominal = (f"varList = list(identify_variables(log({replVarLogDict[i+1]})))\n"
+                             f"listScaling = []\n"
+                             f"for var in varList:\n"
+                             f"\tvarName = \"{modelName}.\" + str(var)\n"
+                             f"\tlistScaling.append(abs(differentiate(log({replVarLogDict[i+1]}), wrt=var)/{modelName}.scaling_factor[eval(varName)]))\n"
+                             f"{modelName}.scaling_factor[{modelName}.u{i+1}] = 1/max(listScaling)\n")
 
             stringInit = re.sub(pattern, addValue, replVarLogDict[i+1])
             subLogVarsPyomoCode.append(f"{modelName}.u{i+1} = Var(initialize = log(" + stringInit + f"), within = Reals)\n{stringNominal}\n")
