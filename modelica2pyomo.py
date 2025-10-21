@@ -368,11 +368,14 @@ def timeTablesConstraintPyomoCode(timeTablesDict, modelName, staticOrDynamic, in
                     pyomoTableCode.append(f"\t{modelName}.{tableName}_{output}[i].fix()\n")
         else:
             for tableName in timeTablesDict.keys():
+
                 if (timeTablesDict[tableName]["smoothness"] != "Modelica.Blocks.Types.Smoothness.ConstantSegments") and (timeTablesDict[tableName]["smoothness"] != "Modelica.Blocks.Types.Smoothness.LinearSegments"):
-                    print(f"Table {tableName} will linearly interpolate the data! Attention!")
+                    print(f"Table {tableName} will just linearly interpolate the data! Attention!")
+            
                 if timeTablesDict[tableName]["smoothness"] == "Modelica.Blocks.Types.Smoothness.ConstantSegments":
                     # pyomoTableCode.append("from scipy.interpolate import make_interp_spline\n\n")
                     pyomoTableCode.append("from scipy import interpolate\n\n")
+
                 table = timeTablesDict[tableName]["tableSeries"]
                 timeVector = table["Time"]
                 for output in table.keys():
@@ -660,22 +663,22 @@ def initialConditionsPyomoCode(modelName, initMode, baseModelica, equationStart,
         else:
             return word + "[tStart]"
     
-    if initMode == "FIX-STATES":
-        initialConditionsCode = [f"def _init({modelName}):\n"]
+    c_index = 1
+    initialConditionsCode = []
+
+    if initMode == "FIX-STATES":        
         for state in statesDict.keys():
             # Look for the initial value of the state in the initializationValues dictionary (DyMat)
             try:
                 valueInit = initializationValues[dictInitValues[state]][0]
             except:
+                print(f"Could not find the initial value for state {state}: setting it to 0!")
                 valueInit = 0
-            # Append to the list of Pyomo code the string for the initial condition
-            initialConditionsCode.append(f"    yield {modelName}.{statesDict[state]}[0] == {valueInit}\n")
-        initialConditionsCode.append("    yield ConstraintList.End\n\n")
-        # Instantiate constraints for the initial conditions with ConstraintList
-        initialConditionsCode.append(f"{modelName}.init_conditions = ConstraintList(rule=_init)\n")
-    
+            # Append to the list of Pyomo code the string for the initial condition constraint
+            initialConditionsCode.append(f"{modelName}.c_init{c_index} = Constraint(expr = {modelName}.{statesDict[state]}[0.0] == {valueInit})\n")
+            c_index += 1
+
     elif initMode == "KEEP-MODELICA":
-        initialConditionsCode = [f"def _init({modelName}):\n"] # start the list of lines with initial line: function declaration for initial constraints
         # Variable containing the pattern to substitute variables to add a trailing [0] index for dynamic problems
         patternDynConstr = fr'\b({modelName}\.\w*)\b'
         for row in baseModelica[initialEquationStart+1:equationStart]:
@@ -714,11 +717,8 @@ def initialConditionsPyomoCode(modelName, initMode, baseModelica, equationStart,
             cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
             cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
             cleanRow = re.sub(patternDynConstr, addInitialIndex, cleanRow) # adding time index to variables ([t])      
-            initialConditionsCode.append(f"    yield {cleanRow}\n")
-        
-        initialConditionsCode.append("    yield ConstraintList.End\n\n") # Final line of the function to define initial constraints
-        # Instantiate constraints for the initial conditions with ConstraintList
-        initialConditionsCode.append(f"{modelName}.init_conditions = ConstraintList(rule=_init)\n")
+            initialConditionsCode.append(f"{modelName}.c_init{c_index} = Constraint(expr = {cleanRow})\n")
+            c_index += 1
     
     return initialConditionsCode
 
