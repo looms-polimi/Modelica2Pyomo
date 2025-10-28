@@ -1195,6 +1195,37 @@ def writeTextDynamicTrajectoryInitNEW(modelName, dictInitValues, adaptedResFileP
 
     return trajInitList                                                     
 
+def gatherAnnotationsAndCommentsFromBaseModelica(baseModelica,patternList):
+    annotationDict = {}
+    fileSection = 1 # file sections: 1 = vars, 2 = initial equations, 3 = equations (files always start with vars)
+    for row in baseModelica:
+        if "initial equation" in row:
+            fileSection = 2
+        elif "equation" in row:
+            fileSection = 3
+        for pattern in patternList:
+            if pattern in row:
+                if fileSection == 1:
+                    try:
+                        # If the row starts with Real and does not contain parameter or constant, the variable name is the first word after Real (non-greedy search)
+                        varName = re.search(r"^\s*Real\s\'(\S+)\'",row).group(1)
+                        annotationDict[varName] = {}
+                        annotationDict[varName]["Type"] = "variable"
+                    except AttributeError:
+                        print(f"Could not find a name for this row: {row}")
+                        break
+                    patternArgument = re.search(f"{pattern}([\w\d\_\.]+)",row).group(1)
+                    annotationDict[varName]["pattern"] = pattern[4:-1]
+                    annotationDict[varName]["patternArgument"] = patternArgument
+                elif fileSection == 2:
+                    annotationDict[row] = {}
+                    annotationDict[row]["Type"] = "initial equation"
+                elif fileSection == 3:
+                    annotationDict[row] = {}
+                    annotationDict[row]["Type"] = "equation"
+
+    return annotationDict
+
 def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, staticOrDynamic, initConditions, initTrajectory,
          customLinesBeforeSettings, customLinesAfterSettings, tStart = 0, tEnd = 1, bounds = True,
          subLog = False, dynTransfOpt = dict(), initTrajectoryMatFileName = "dynamicInitDict"):
@@ -1272,6 +1303,9 @@ def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, stati
         print("Setting the initial value dictionary to None! Issues in loading or handling the initial values dictionary")
         initializationValues = None
         dictInitValues = None
+    
+    # Gather pattern list
+    annotationDict = gatherAnnotationsAndCommentsFromBaseModelica(baseModelica,["m2p dummy derivative ", "m2p test equation", "m2p test initial equation"])
     
     # Removing comments and other unwanted characters from the Base Modelica model
     baseModelica = cleanBaseModelica(baseModelica)
