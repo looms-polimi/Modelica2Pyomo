@@ -349,25 +349,28 @@ def timeTablesConstraintPyomoCode(timeTablesDict, modelName, staticOrDynamic, in
     pyomoTableCode = []
     if staticOrDynamic == "Static":
         for tableName in timeTablesDict.keys():
+            pyomoTableName = modelicaToPyomoVarName(tableName)
             table = timeTablesDict[tableName]["tableSeries"]
             for output in table.keys():
                 if output == "Time":
                     continue
                 else:
-                    string = f"{modelName}.{tableName}_{output}.fix({table[output][0]})\n"
+                    string = f"{modelName}.{pyomoTableName}_{output}.fix({table[output][0]})\n"
                     pyomoTableCode.append(string)
 
     if staticOrDynamic == "Dynamic":
         if initTrajectory == "Dynamic" and useResultsForTable == True:
             pyomoTableCode.append("for i in timeSteps:\n")
             for tableName in timeTablesDict.keys():
+                pyomoTableName = modelicaToPyomoVarName(tableName)
                 table = timeTablesDict[tableName]["tableSeries"]
                 for output in table.keys():
                     if output == "Time":
                         continue
-                    pyomoTableCode.append(f"\t{modelName}.{tableName}_{output}[i].fix()\n")
+                    pyomoTableCode.append(f"\t{modelName}.{pyomoTableName}_{output}[i].fix()\n")
         else:
             for tableName in timeTablesDict.keys():
+                pyomoTableName = modelicaToPyomoVarName(tableName)
 
                 if (timeTablesDict[tableName]["smoothness"] != "Modelica.Blocks.Types.Smoothness.ConstantSegments") and (timeTablesDict[tableName]["smoothness"] != "Modelica.Blocks.Types.Smoothness.LinearSegments"):
                     print(f"Table {tableName} will just linearly interpolate the data! Attention!")
@@ -383,15 +386,15 @@ def timeTablesConstraintPyomoCode(timeTablesDict, modelName, staticOrDynamic, in
                         continue
                     else:
                         valueVector = table[output]
-                        string = f"{tableName}_{output}_time = {timeVector}\n"
-                        string += f"{tableName}_{output}_values = {valueVector}\n"
+                        string = f"{pyomoTableName}_{output}_time = {timeVector}\n"
+                        string += f"{pyomoTableName}_{output}_values = {valueVector}\n"
                         if timeTablesDict[tableName]["smoothness"] == "Modelica.Blocks.Types.Smoothness.ConstantSegments":
                             # string += f"f{output} = make_interp_spline({tableName}_{output}_time, {tableName}_{output}_values, k=0)\n"
-                            string += f"f{output} = interpolate.interp1d({tableName}_{output}_time, {tableName}_{output}_values, kind = 'previous')\n"
-                            string += f"{tableName}_{output}_interp = f{output}(timeSteps)\n"
+                            string += f"f{output} = interpolate.interp1d({pyomoTableName}_{output}_time, {pyomoTableName}_{output}_values, kind = 'previous')\n"
+                            string += f"{pyomoTableName}_{output}_interp = f{output}(timeSteps)\n"
                         else:
-                            string += f"{tableName}_{output}_interp =  np.interp(timeSteps, {tableName}_{output}_time, {tableName}_{output}_values)\n"
-                        string += f"for i,j in zip(timeSteps,range(len(timeSteps))):\n\t{modelName}.{tableName}_{output}[i].fix({tableName}_{output}_interp[j])\n\n"
+                            string += f"{pyomoTableName}_{output}_interp =  np.interp(timeSteps, {pyomoTableName}_{output}_time, {pyomoTableName}_{output}_values)\n"
+                        string += f"for i,j in zip(timeSteps,range(len(timeSteps))):\n\t{modelName}.{pyomoTableName}_{output}[i].fix({pyomoTableName}_{output}_interp[j])\n\n"
                         # print(string)
                         pyomoTableCode.append(string)
                         pass
@@ -499,13 +502,14 @@ def varsDict(baseModelica, initialEquationStart, initializationValues = None, di
                 # Instantiate dict for variable found
                 variablesDict[varName] = dict()
                 # Clean the variable name from square brackets
+                cleanVarName = modelicaToPyomoVarName(varName)
                 # cleanVarName = re.sub(r"[\[\]]", "", varName) # This line is dangerous with vector variables...
                 # Better to substitute [ with _ and then remove ], so that y1 stays y1 and y[1] becomes y_1 instead of y1
-                cleanVarName = re.sub(r"[\[]", "_", varName)
-                cleanVarName = re.sub(r"[\]]", "", cleanVarName)
+                ##cleanVarName = re.sub(r"[\[]", "_", varName)
+                ##cleanVarName = re.sub(r"[\]]", "", cleanVarName)
                 # Substitute dots with underscores
-                cleanVarName = re.sub(r"\.","_", cleanVarName)
-                cleanVarName = re.sub(r"\,","_", cleanVarName)
+                ##cleanVarName = re.sub(r"\.","_", cleanVarName)
+                ##cleanVarName = re.sub(r"\,","_", cleanVarName)
                 # Store the variable name in the dictionary as pyomoName
                 variablesDict[varName]["pyomoName"] = cleanVarName
                 # Look for minimum, maximum and nominal values
@@ -561,6 +565,10 @@ def varsDict(baseModelica, initialEquationStart, initializationValues = None, di
                 else:
                     # If no initial values are used, the variable is initialized to 0
                     variablesDict[varName]["initialize"] = 0
+                try:
+                    variablesDict[varName]["scaling"] = "1/" + str(max(abs(float(variablesDict[varName]["nominal"])), abs(float(variablesDict[varName]["initialize"]))))
+                except KeyError:
+                    variablesDict[varName]["scaling"] = "1/" + str(abs(float(variablesDict[varName]["nominal"])))
         else:
             # This is a check to see if the translation from Modelica to BaseModelica was correct
             if "parameter" not in row and "constant" not in row:
@@ -595,7 +603,7 @@ def textVarPyomoCode(variablesDict, modelName, staticOrDynamic, initTrajectory, 
                 # defString += "within = Reals)" # string without bounds ###INITtraj
         
         # Compose the string for the normalization factor: max(|nominal|, |initialize|)
-        normString = modelName + f".scaling_factor[{modelName}." + variablesDict[var]["pyomoName"] + "] = 1/max(" + str(abs(float(variablesDict[var]["nominal"]))) + "," + str(abs(float(variablesDict[var]["initialize"]))) + ")"
+        normString = modelName + f".scaling_factor[{modelName}." + variablesDict[var]["pyomoName"] + "] = " + str(variablesDict[var]["scaling"])
         # Append the strings to the list
         varPyomoCode.append(defString)
         varPyomoCode.append("\n")
@@ -648,20 +656,20 @@ def initialConditionsPyomoCode(modelName, initMode, baseModelica, equationStart,
         return initialConditionsCode
     
     # Function to add model_name before every variable (not log, sqrt, exp, sin)
-    def replace(match):
-        word = match.group(0)
-        if word in ["log", "sqrt", "exp", "sin", "cos", "tanh"]:
-            return word
-        else:
-            return modelName + "." + word
+    # def replace(match):
+    #     word = match.group(0)
+    #     if word in ["log", "sqrt", "exp", "sin", "cos", "tanh"]:
+    #         return word
+    #     else:
+    #         return modelName + "." + word
     
-    def addInitialIndex(match):
-        # Function to add [0] index to variables
-        word = match.group(0)
-        if word in ["log", "sqrt", "exp", "cos", "sin", "tanh"]:
-            return word
-        else:
-            return word + "[tStart]"
+    # def addInitialIndex(match):
+    #     # Function to add [0] index to variables
+    #     word = match.group(0)
+    #     if word in ["log", "sqrt", "exp", "cos", "sin", "tanh"]:
+    #         return word
+    #     else:
+    #         return word + "[tStart]"
     
     c_index = 1
     initialConditionsCode = []
@@ -680,7 +688,7 @@ def initialConditionsPyomoCode(modelName, initMode, baseModelica, equationStart,
 
     elif initMode == "KEEP-MODELICA":
         # Variable containing the pattern to substitute variables to add a trailing [0] index for dynamic problems
-        patternDynConstr = fr'\b({modelName}\.\w*)\b'
+        # patternDynConstr = fr'\b({modelName}\.\w*)\b'
         for row in baseModelica[initialEquationStart+1:equationStart]:
             if " homotopy(" in row:
                 try:
@@ -706,22 +714,39 @@ def initialConditionsPyomoCode(modelName, initMode, baseModelica, equationStart,
                     pass
             
             # Turning the line into Pyomo style
-            cleanRow = re.sub(r"[\[]", "_", row) # stripping square brackets
-            cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping square brackets
-            cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt(
-            cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
-            cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
-            cleanRow = regex.sub(r'der\((\w+)\)', r'DER\1', cleanRow) # Replace der() with DER...
-            cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) m.x
-            cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
-            cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
-            cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
-            cleanRow = re.sub(patternDynConstr, addInitialIndex, cleanRow) # adding time index to variables ([t])      
+            cleanRow = modelica2PyomoCleanConstraint(row,"Dynamic",modelName, initialConstraint = True)
+            # cleanRow = re.sub(r"[\[]", "_", row) # stripping square brackets
+            # cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping square brackets
+            # cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt(
+            # cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
+            # cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
+            # cleanRow = regex.sub(r'der\((\w+)\)', r'DER\1', cleanRow) # Replace der() with DER...
+            # cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) m.x
+            # cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
+            # cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
+            # cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
+            # cleanRow = re.sub(patternDynConstr, addInitialIndex, cleanRow) # adding time index to variables ([t])      
             initialConditionsCode.append(f"{modelName}.c_init{c_index} = Constraint(expr = {cleanRow})\n")
             c_index += 1
     
     return initialConditionsCode
 
+def modelicaToPyomoVarName(varName):
+    cleanVarName = re.sub(r"[\[]", "_", varName)
+    cleanVarName = re.sub(r"[\]]", "", cleanVarName)
+    cleanVarName = re.sub(r"\.","_", cleanVarName)
+    cleanVarName = re.sub(r"\,","_", cleanVarName)
+    return cleanVarName
+
+
+def addInitialIndex(match):
+        # Function to add [0] index to variables
+        word = match.group(0)
+        if word in ["log", "sqrt", "exp", "cos", "sin", "tanh"]:
+            return word
+        else:
+            return word + "[tStart]"
+        
 def addTimeIndex(match):
         # Function to add time index to variables if dynamic problem is considered
         word = match.group(0)
@@ -730,11 +755,46 @@ def addTimeIndex(match):
         else:
             return word + "[t]"
 
-def modelicaToPyomoVarName(varName):
-    cleanVarName = re.sub(r"[\[]", "_", varName)
-    cleanVarName = re.sub(r"[\]]", "", cleanVarName)
-    cleanVarName = re.sub(r"\.","_", cleanVarName)
-    return cleanVarName
+def modelica2PyomoCleanConstraint(row,staticOrDynamic,prefix,derivative=False,statesDict = None,initialConstraint = False):
+    def replace(match):
+        word = match.group(0)
+        if word in ["log", "sqrt", "exp", "sin", "cos", "tanh"]:
+            return word
+        else:
+            return prefix + "." + word
+    
+    if derivative:
+        listOfStatesModelica = regex.findall(r"der\((.*?)\)", row)
+
+    cleanRow = re.sub(r"[\[]", "_", row) # stripping left square brackets
+    cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping right square brackets
+    cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt(, sin(, cos(
+    cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
+    cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
+    if derivative:
+        # If at least a derivative is present, create a dictionary with the states as key and their corresponding Pyomo variables as argument
+        listOfStatesPyomo = regex.findall(r"der\((\w+)\)", cleanRow)
+        statesDictrow = dict(zip(listOfStatesModelica, listOfStatesPyomo))
+        statesDict.update(statesDictrow)
+    if staticOrDynamic == "Dynamic":
+        cleanRow = regex.sub(r'der\((\w+)\)', r'DER\1', cleanRow) # Replace der() with DER...
+    elif staticOrDynamic == "Static":
+        cleanRow = regex.sub(r"der\(.*?\)", "0", cleanRow) # removing derivatives and setting them to 0 (JUST FOR STATIC PROBLEM!)
+    cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) through function replace
+    cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
+    cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
+    cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
+    if staticOrDynamic == "Dynamic":
+        patternDynConstr = fr'\b({prefix}\.\w*)\b'
+        if initialConstraint == True:
+            cleanRow = re.sub(patternDynConstr, addInitialIndex, cleanRow)
+        else:
+            cleanRow = re.sub(patternDynConstr, addTimeIndex, cleanRow) # adding time index to variables ([t])
+    
+    if derivative:
+        return cleanRow, statesDict
+    else:
+        return cleanRow
 
 
 def textConstraintsPyomoCode(baseModelica, equationStart, modelName, variablesDict, staticOrDynamic, subLog = False, norm = True, varFixing = True):
@@ -766,7 +826,7 @@ def textConstraintsPyomoCode(baseModelica, equationStart, modelName, variablesDi
                     args.append(s[start:i])
         return args
     # Variable containing the pattern to substitute variables to add a trailing [t] index for dynamic problems
-    patternDynConstr = fr'\b({modelName}\.\w*)\b'
+    # patternDynConstr = fr'\b({modelName}\.\w*)\b'
     # Empty list to store the Pyomo code for the constraints
     constraintsPyomoCode = []
     # Empty dictionary to store the states and their corresponding Pyomo variables
@@ -833,16 +893,17 @@ def textConstraintsPyomoCode(baseModelica, equationStart, modelName, variablesDi
             else:
                 # Division between static and dynamic constraints
                 if staticOrDynamic == "Static":
-                    cleanRow = re.sub(r"[\[]", "_", row) # stripping square brackets
-                    cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping square brackets
-                    cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt( to separate every variable from other letters
-                    cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
-                    cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
-                    cleanRow = regex.sub(r"der\(.*?\)", "0", cleanRow) # removing derivatives and setting them to 0 (JUST FOR STATIC PROBLEM!)
-                    cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) through function replace
-                    cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
-                    cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
-                    cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
+                    cleanRow = modelica2PyomoCleanConstraint(row,staticOrDynamic,modelName)
+                    # cleanRow = re.sub(r"[\[]", "_", row) # stripping square brackets
+                    # cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping square brackets
+                    # cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt( to separate every variable from other letters
+                    # cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
+                    # cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
+                    # cleanRow = regex.sub(r"der\(.*?\)", "0", cleanRow) # removing derivatives and setting them to 0 (JUST FOR STATIC PROBLEM!)
+                    # cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) through function replace
+                    # cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
+                    # cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
+                    # cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
                     if subLog:
                         # Substituting logs with exponential equivalent: log(x) --> u and exp(u) = x
                         if "log(" in cleanRow:
@@ -874,26 +935,29 @@ def textConstraintsPyomoCode(baseModelica, equationStart, modelName, variablesDi
                     if "der(" in row:
                         derivative = True
                         # Store state in a list
-                        listOfStatesModelica = regex.findall(r"der\((.*?)\)", row)
+                        # listOfStatesModelica = regex.findall(r"der\((.*?)\)", row)
+                        cleanRow, statesDict = modelica2PyomoCleanConstraint(row,staticOrDynamic,modelName,derivative = derivative, statesDict = statesDict)
                         # print()
                     else:
                         derivative = False
-                    cleanRow = re.sub(r"[\[]", "_", row) # stripping square brackets
-                    cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping square brackets
-                    cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt(
-                    cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
-                    cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
-                    if derivative:
-                        # If at least a derivative is present, create a dictionary with the states as key and their corresponding Pyomo variables as argument
-                        listOfStatesPyomo = regex.findall(r"der\((\w+)\)", cleanRow)
-                        statesDictrow = dict(zip(listOfStatesModelica, listOfStatesPyomo))
-                        statesDict.update(statesDictrow)
-                    cleanRow = regex.sub(r'der\((\w+)\)', r'DER\1', cleanRow) # Replace der() with DER...
-                    cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) m.x
-                    cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
-                    cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
-                    cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
-                    cleanRow = re.sub(patternDynConstr, addTimeIndex, cleanRow) # adding time index to variables ([t])
+                        cleanRow = modelica2PyomoCleanConstraint(row,staticOrDynamic,modelName,derivative = derivative)
+                    
+                    # cleanRow = re.sub(r"[\[]", "_", row) # stripping square brackets
+                    # cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping square brackets
+                    # cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt(
+                    # cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
+                    # cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
+                    # if derivative:
+                    #     # If at least a derivative is present, create a dictionary with the states as key and their corresponding Pyomo variables as argument
+                    #     listOfStatesPyomo = regex.findall(r"der\((\w+)\)", cleanRow)
+                    #     statesDictrow = dict(zip(listOfStatesModelica, listOfStatesPyomo))
+                    #     statesDict.update(statesDictrow)
+                    # cleanRow = regex.sub(r'der\((\w+)\)', r'DER\1', cleanRow) # Replace der() with DER...
+                    # cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) m.x
+                    # cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
+                    # cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
+                    # cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
+                    # cleanRow = re.sub(patternDynConstr, addTimeIndex, cleanRow) # adding time index to variables ([t])
                     if subLog:
                         # Same logic as for static problems, but with the addition of the time index for log to exp substitution
                         if "log(" in cleanRow:
@@ -927,25 +991,25 @@ def textConstraintsPyomoCode(baseModelica, equationStart, modelName, variablesDi
 
 
 def fixedFalseParams(baseModelica, modelName, initialEquationStart, equationStart, staticOrDynamic, initializationValues, dictInitValues):
-    def replace(match):
-        word = match.group(0)
-        if word in ["log", "sqrt", "exp", "sin", "cos", "tanh"]:
-            return word
-        else:
-            return modelName + "." + word
+    # def replace(match):
+    #     word = match.group(0)
+    #     if word in ["log", "sqrt", "exp", "sin", "cos", "tanh"]:
+    #         return word
+    #     else:
+    #         return modelName + "." + word
         
-    def addInitialIndex(match):
-        # Function to add [0] index to variables
-        word = match.group(0)
-        if word in ["log", "sqrt", "exp", "cos", "sin", "tanh"]:
-            return word
-        else:
-            return word + "[tStart]"
+    # def addInitialIndex(match):
+    #     # Function to add [0] index to variables
+    #     word = match.group(0)
+    #     if word in ["log", "sqrt", "exp", "cos", "sin", "tanh"]:
+    #         return word
+    #     else:
+    #         return word + "[tStart]"
         
     listVarParam = []
     listExtraVars = []
     listExtraConstr = []
-    patternDynConstr = fr'\b({modelName}\.\w*)\b'
+    # patternDynConstr = fr'\b({modelName}\.\w*)\b'
     i = 1
     for row in baseModelica[1:initialEquationStart]:
         if "fixed = false" in row:
@@ -984,16 +1048,17 @@ def fixedFalseParams(baseModelica, modelName, initialEquationStart, equationStar
                     if initializationValues != None:
                         listExtraConstr.append(f"{modelName}.{varParamPyomo}.fix({initializationValues[dictInitValues[varParam]][0]})\n\n")
                     else:
-                        cleanRow = re.sub(r"[\[]", "_", row) # stripping square brackets
-                        cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping square brackets
-                        cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt( to separate every variable from other letters
-                        cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
-                        cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
-                        cleanRow = regex.sub(r"der\(.*?\)", "0", cleanRow) # removing derivatives and setting them to 0 (JUST FOR STATIC PROBLEM!)
-                        cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) through function replace
-                        cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
-                        cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
-                        cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
+                        cleanRow = modelica2PyomoCleanConstraint(row,staticOrDynamic,modelName)
+                        # cleanRow = re.sub(r"[\[]", "_", row) # stripping square brackets
+                        # cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping square brackets
+                        # cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt( to separate every variable from other letters
+                        # cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
+                        # cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
+                        # cleanRow = regex.sub(r"der\(.*?\)", "0", cleanRow) # removing derivatives and setting them to 0 (JUST FOR STATIC PROBLEM!)
+                        # cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) through function replace
+                        # cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
+                        # cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
+                        # cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
                         listExtraConstr.append(modelName + f".constrExtra{i} = Constraint(expr = " + cleanRow + ")\n\n")
                         i += 1
                 
@@ -1003,17 +1068,18 @@ def fixedFalseParams(baseModelica, modelName, initialEquationStart, equationStar
                     if initializationValues != None:
                         listExtraConstr.append(f"for t in timeSteps:\n\t{modelName}.{varParamPyomo}[t].fix({initializationValues[dictInitValues[varParam]][0]})\n\n")
                     else:
-                        cleanRow = re.sub(r"[\[]", "_", row) # stripping square brackets
-                        cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping square brackets
-                        cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt(
-                        cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
-                        cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
-                        cleanRow = regex.sub(r'der\((\w+)\)', r'DER\1', cleanRow) # Replace der() with DER...
-                        cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) m.x
-                        cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
-                        cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
-                        cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
-                        cleanRow = re.sub(patternDynConstr, addInitialIndex, cleanRow)
+                        cleanRow = modelica2PyomoCleanConstraint(row,staticOrDynamic,modelName,initialConstraint = True)
+                        # cleanRow = re.sub(r"[\[]", "_", row) # stripping square brackets
+                        # cleanRow = re.sub(r"[\]]", "", cleanRow) # stripping square brackets
+                        # cleanRow = re.sub(r"sqrt\(|exp\(|log\(|sin\(|cos\(", r"\g<0> ", cleanRow) # Adding space after log(, exp(, sqrt(
+                        # cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\.", r"_", cleanRow) # removing dots from variable names
+                        # cleanRow = regex.sub(r"[a-zA-Z]+?\S*?\K\,", r"_", cleanRow) # removing commas from variable names
+                        # cleanRow = regex.sub(r'der\((\w+)\)', r'DER\1', cleanRow) # Replace der() with DER...
+                        # cleanRow = re.sub(r'\b([a-zA-Z_]\w*)\b', replace, cleanRow) # adding model name to variables (they must start with a letter!!) m.x
+                        # cleanRow = re.sub(r"=", "==", cleanRow) # changing = into ==
+                        # cleanRow = re.sub(r"\^", "**", cleanRow) # changing ^ into **
+                        # cleanRow = re.sub(r";", "", cleanRow) # removing semicolumns
+                        # cleanRow = re.sub(patternDynConstr, addInitialIndex, cleanRow)
                         cleanRow = re.sub(f"{modelName}.{varParamPyomo}\[tStart\]", f"{modelName}.{varParamPyomo}[t]", cleanRow)
                         listExtraConstr.append(f"def _constrExtra{i}({modelName},t):\n\treturn {cleanRow}\n\n{modelName}.constrExtra{i}({modelName}.time, rule = _constrExtra{i})\n\n")
                         i += 1
@@ -1195,36 +1261,57 @@ def writeTextDynamicTrajectoryInitNEW(modelName, dictInitValues, adaptedResFileP
 
     return trajInitList                                                     
 
-def gatherAnnotationsAndCommentsFromBaseModelica(baseModelica,patternList):
-    annotationDict = {}
-    fileSection = 1 # file sections: 1 = vars, 2 = initial equations, 3 = equations (files always start with vars)
+def gatherScalingFromBaseModelica(baseModelica, modelName):
+    # modelica2PyomoCleanConstraint(row,"Static",prefix
+    scalingDict = {}
     for row in baseModelica:
-        if "initial equation" in row:
-            fileSection = 2
-        elif "equation" in row:
-            fileSection = 3
-        for pattern in patternList:
-            if pattern in row:
-                if fileSection == 1:
-                    try:
-                        # If the row starts with Real and does not contain parameter or constant, the variable name is the first word after Real (non-greedy search)
-                        varName = re.search(r"^\s*Real\s\'(\S+)\'",row).group(1)
-                        annotationDict[varName] = {}
-                        annotationDict[varName]["Type"] = "variable"
-                    except AttributeError:
-                        print(f"Could not find a name for this row: {row}")
-                        break
-                    patternArgument = re.search(f"{pattern}([\w\d\_\.]+)",row).group(1)
-                    annotationDict[varName]["pattern"] = pattern[4:-1]
-                    annotationDict[varName]["patternArgument"] = patternArgument
-                elif fileSection == 2:
-                    annotationDict[row] = {}
-                    annotationDict[row]["Type"] = "initial equation"
-                elif fileSection == 3:
-                    annotationDict[row] = {}
-                    annotationDict[row]["Type"] = "equation"
+        if "DER_SCALING" in row:
+            modelicaVarName = re.search(r"^\s*Real\s\'(\S+)\'",row).group(1)
+            pyomoVarName = modelicaToPyomoVarName(modelicaVarName)
+            scalingDict[pyomoVarName] = {}
+            scalingDict[pyomoVarName]["ModelicaName"] = modelicaVarName
+            scalingDict[pyomoVarName]["Type"] = "variable"
+            try:
+                modelicaPrefix = regex.search(r".*(?=\.)", modelicaVarName).group()
+                pyomoPrefix = modelicaToPyomoVarName(modelicaPrefix)
+                scalingDict[pyomoVarName]["VarPrefix"] = pyomoPrefix
+            except AttributeError:
+                pyomoPrefix = ""
+                scalingDict[pyomoVarName]["VarPrefix"] = pyomoPrefix
+            scalingFactorModelicaExpression = re.search(f"DER_SCALING: (.*)\\\\\";",row).group(1)
+            scalingFactorPyomoExpression = modelica2PyomoCleanConstraint(scalingFactorModelicaExpression,"Static",pyomoPrefix)
+            scalingFactorPyomoExpression = modelica2PyomoCleanConstraint(scalingFactorPyomoExpression,"Static",modelName)
+            scalingFactorPyomoExpression = regex.sub(rf"({modelName}.[\w\_\d]+)", rf'{modelName}.scaling_factor[\1]', scalingFactorPyomoExpression)
+            scalingDict[pyomoVarName]["scalingFactor"] = f"({scalingFactorPyomoExpression})*dt"
+        elif "SCALING: " in row:
+            pass # For the moment just pass
+            # try:
+            #     # Look for variables
+            #     element = re.search(r"^\s*Real\s\'(\S+)\'",row).group(1)
+            #     annotationDict[element] = {}
+            #     annotationDict[element]["Type"] = "variable"
+            #     annotationDict[element]["VarPrefix"] = "ph"
+            # except AttributeError:
+            #     # It is an equation
+            #     element = re.search(r"(.*?)\s\\\"SCALING:\s",row).group(1)
+            #     annotationDict[element] = {}
+            #     annotationDict[element]["Type"] = "equation"
+            
+            # scalingFactor = re.search(f"SCALING: ([\w\d\_\.]+)",row).group(1)
+            # annotationDict[element]["scalingFactor"] = scalingFactor
 
-    return annotationDict
+
+    return scalingDict
+
+def updateScalingForVariables(variablesDict,scalingDict):
+    for key in scalingDict.keys():
+        if scalingDict[key]["Type"] == "variable":
+            # replacing scaling factor
+            variablesDict[scalingDict[key]["ModelicaName"]]["scaling"] = scalingDict[key]["scalingFactor"]
+            # move to last position the variable since it might rely on other scaling factors
+            variablesDict[scalingDict[key]["ModelicaName"]] = variablesDict.pop(scalingDict[key]["ModelicaName"])        
+
+    return variablesDict
 
 def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, staticOrDynamic, initConditions, initTrajectory,
          customLinesBeforeSettings, customLinesAfterSettings, tStart = 0, tEnd = 1, bounds = True,
@@ -1305,7 +1392,7 @@ def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, stati
         dictInitValues = None
     
     # Gather pattern list
-    annotationDict = gatherAnnotationsAndCommentsFromBaseModelica(baseModelica,["m2p dummy derivative ", "m2p test equation", "m2p test initial equation"])
+    scalingDict = gatherScalingFromBaseModelica(baseModelica, modelName)
     
     # Removing comments and other unwanted characters from the Base Modelica model
     baseModelica = cleanBaseModelica(baseModelica)
@@ -1350,6 +1437,8 @@ def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, stati
 
     # Creating a dictionary with all the variables of the model, with name, pyomo name, min, max, nominal and initialization value
     variablesDict = varsDict(baseModelica, initialEquationStart, initializationValues = initializationValues, dictInitValues = dictInitValues)
+
+    variablesDict = updateScalingForVariables(variablesDict,scalingDict)
 
     # Takes as input variablesDict to create Pyomo code in list to instantiate variables and scale them
     # The following list contains Pyomo code (each entry is a line of code)
