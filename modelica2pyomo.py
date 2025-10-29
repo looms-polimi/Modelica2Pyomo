@@ -1168,7 +1168,43 @@ def writeTextDynamicTrajectoryInitNEW(modelName, dictInitValues, adaptedResFileP
     return trajInitList                                                     
 
 def gatherScalingFromBaseModelica(baseModelica, modelName):
+    # This function takes as input the original base modelica code and the name of the Pyomo model to employ
 
+    # This function is employed to generate a dictionary containing information to implement custom scaling of variables (so far).
+    # The primary focus of this function is to tell the parser which is a reasonable value to scale dummy time derivatives.
+    # Thus, so far, only dummy time derivatives can be scaled through this function.
+    # Variables may be scalars or vectors. 
+    # Currently, the function looks for variables that feature the following comment in the Modelica code: "DER_SCALING: xxx".
+    # Notice the space between the colon and the expression that follows
+    
+    # Modelica models might feature variables which are assigned to derivatives like der(M) = dM_dt.
+    # While der(M) is scaled correctly (with the expression scaling_factor(M)*dt where dt is the simulation time interval)
+    #   employing the information of the variable between brackets, dM_dt does not have such indication a priori.
+    # By means of the comment "DER_SCALING: M" such information can be brought into the baseModelica code and exploited to scale
+    #   dM_dt as der(M).
+    
+    # DER_SCALING keyword guidelines:
+    # "DER_SCALING: x" will generate the scaling factor entry scaling_factor(x)*dt
+    #"DER_SCALING: z[1]" will generate the scaling factor entry scaling_factor(z_1)*dt
+    # It is possible to include as scaling factor an expression rather than just a single variable.
+    # "DER_SCALING: x*y" is a legit comment that will produce the scaling entry scaling_factor(x)*scaling_factor(y)*dt
+    # Note that x and y must be in the same scope of the dummy derivative variable.
+    # Thus, if y is contained in a submodel instantiated in the same model where the dummy derivative is, the comment would need to be
+    # "DER_SCALING: x*submodel.y"
+    # If the dummy time derivative is a vector and multiple scaling factor should be provided, multiple options are available:
+    # An example follows below:
+    # Real x[3];
+    # Real y[5];
+    # Real dx_dt[2] "DER_SCALING: x[2]*y[2,4]";
+    # There are two ways to express which are the indices of the vectors we'd like to use to normalize the dummy time derivative
+    # 1. For x (a vector of three elements) we want to use the 2nd and 3rd elements and thus we specify that the starting element to consider is the second one
+    #   thus, x[2] is employed to make the parser aware
+    # 2. For y we want to use the 2nd and the 4th elements... a list of indices declaring the important indices should be included.
+    # For dx_dt[1] the scaling is scaling_factor(x[2])*scaling_factor(y[2])*dt
+    # For dx_dt[2] the scaling is scaling_factor(x[3])*scaling_factor(y[4])*dt 
+    
+    
+    
     # Function factory that accepts `values` after instantiation
     def create_replacement_function(values):
     # This is the function that will be used to replace the brackets' contents
@@ -1176,47 +1212,74 @@ def gatherScalingFromBaseModelica(baseModelica, modelName):
             return values.pop(0)  # Pop the first element from values and return it
         return replace_inside_brackets
 
+    # Instantiate scaling dictionary
     scalingDict = {}
     for row in baseModelica:
+        # Look for DER_SCALING keyword in comments
         if "DER_SCALING" in row:
-            modelicaVarName = re.search(r"^\s*Real\s\'(\S+)\'",row).group(1)
+            # Get Modelica variable name
+            modelicaVarName = re.search(r"^\s*Real\s\'(\S+)\'",row).group(1) 
             try:
-                vectorIndex = regex.search(r"(\d+)\]$",modelicaVarName).group(1)
+                # Try to see if the variable is a vector or not and assign the position in the vector of the current variable 
+                vectorIndex = regex.search(r"(\d+)\]$",modelicaVarName).group(1) 
             except:
-                vectorIndex = 0
+                # If not, set the index to zero
+                vectorIndex = 0 
+                # Convert the name of the variable to Pyomo style
             pyomoVarName = modelicaToPyomoVarName(modelicaVarName)
-            scalingDict[pyomoVarName] = {}
+            # Create dictionary entry with Pyomo name as key
+            scalingDict[pyomoVarName] = {} 
             scalingDict[pyomoVarName]["ModelicaName"] = modelicaVarName
-            scalingDict[pyomoVarName]["Type"] = "variable"
-            scalingDict[pyomoVarName]["vectorIndex"] = vectorIndex
+            # State that the entry is a variable
+            scalingDict[pyomoVarName]["Type"] = "variable" 
+            # Store the vector index
+            scalingDict[pyomoVarName]["vectorIndex"] = vectorIndex 
             try:
-                modelicaPrefix = regex.search(r".*(?=\.)", modelicaVarName).group()
-                pyomoPrefix = modelicaToPyomoVarName(modelicaPrefix)
-                scalingDict[pyomoVarName]["VarPrefix"] = pyomoPrefix
+                # Get the path (prefix) of the dummy time derivative to employ it later for the variables listed in the DER_SCALING comment 
+                modelicaPrefix = regex.search(r".*(?=\.)", modelicaVarName).group() 
+                # Convert the prefix in Pyomo style
+                pyomoPrefix = modelicaToPyomoVarName(modelicaPrefix) 
             except AttributeError:
-                pyomoPrefix = ""
-                scalingDict[pyomoVarName]["VarPrefix"] = pyomoPrefix
-            scalingFactorModelicaExpression = re.search(f"DER_SCALING: (.*)\\\\\";",row).group(1)
-            if vectorIndex != 0:
-                listScalingVectors = re.findall(r"(\[[\d\,]*\])", scalingFactorModelicaExpression)
-                if listScalingVectors != []:
-                    listNewVectors = []
+                # If no prefix is found, assign an empty string
+                pyomoPrefix = "" 
+            # Store the prefix
+            scalingDict[pyomoVarName]["VarPrefix"] = pyomoPrefix 
+            # Parse the Modelica comment to find the scaling expression
+            scalingFactorModelicaExpression = re.search(f"DER_SCALING: (.*)\\\\\";",row).group(1) 
+            # If the dummy derivative is a vector enter 
+            if vectorIndex != 0: 
+                # Find all the patterns indicating which indices should be used for the vector variables included in the scaling expression
+                listScalingVectors = re.findall(r"(\[[\d\,]*\])", scalingFactorModelicaExpression) 
+                # If vector expression are found
+                if listScalingVectors != []: 
+                    # Empty list for new entries
+                    listNewVectors = [] 
                     for elem in listScalingVectors:
-                        if len(eval(elem)) > 1:
-                            correspondingIndex = str(eval(elem)[int(vectorIndex)-1])
-                        else:
+                        # If True, this means that a structure x[1,2,3,4,5] has been found
+                        if len(eval(elem)) > 1: 
+                            # Assign corresponding index
+                            correspondingIndex = str(eval(elem)[int(vectorIndex)-1]) 
+                        else:  
+                            # This means that a structure x[2] has been found
                             correspondingIndex = str(eval(elem)[0]+int(vectorIndex)-1)
-                        listNewVectors.append("[" + correspondingIndex +"]")
+                        # Append to the list the value found
+                        listNewVectors.append("[" + correspondingIndex +"]") 
 
-                    replacement_function = create_replacement_function(listNewVectors)
-                    scalingFactorModelicaExpression = re.sub(r'\[\d+(?:,\d+)*\]', replacement_function, scalingFactorModelicaExpression)
+                    # Generate a replacing function for re.sub with the new vector
+                    replacement_function = create_replacement_function(listNewVectors) 
+                    # Replace one aat a time the vector patterns with a single value
+                    scalingFactorModelicaExpression = re.sub(r'\[\d+(?:,\d+)*\]', replacement_function, scalingFactorModelicaExpression) 
             
-            scalingFactorPyomoExpression = modelica2PyomoCleanConstraint(scalingFactorModelicaExpression,"Static",pyomoPrefix)
-            scalingFactorPyomoExpression = modelica2PyomoCleanConstraint(scalingFactorPyomoExpression,"Static",modelName)
-            scalingFactorPyomoExpression = regex.sub(rf"({modelName}.[\w\_\d]+)", rf'{modelName}.scaling_factor[\1]', scalingFactorPyomoExpression)
-            scalingDict[pyomoVarName]["scalingFactor"] = f"({scalingFactorPyomoExpression})*dt"
+            # Turn the pattern in Pyomo style including the prefix of the variable according to the scope of the dummy time derivative
+            scalingFactorPyomoExpression = modelica2PyomoCleanConstraint(scalingFactorModelicaExpression,"Static",pyomoPrefix) 
+            # Place {modelName}. in front of every variable
+            scalingFactorPyomoExpression = modelica2PyomoCleanConstraint(scalingFactorPyomoExpression,"Static",modelName) 
+            # Place scaling_factor[] to enclose every variable
+            scalingFactorPyomoExpression = regex.sub(rf"({modelName}.[\w\_\d]+)", rf'{modelName}.scaling_factor[\1]', scalingFactorPyomoExpression) 
+            # Store the scaling expression
+            scalingDict[pyomoVarName]["scalingFactor"] = f"({scalingFactorPyomoExpression})*dt" 
         elif "SCALING: " in row:
-            pass # For the moment just pass
+            pass # This is not implemented yet
             # try:
             #     # Look for variables
             #     element = re.search(r"^\s*Real\s\'(\S+)\'",row).group(1)
@@ -1236,6 +1299,7 @@ def gatherScalingFromBaseModelica(baseModelica, modelName):
     return scalingDict
 
 def updateScalingForVariables(variablesDict,scalingDict):
+    # This function updates the scaling factor of a variable to the ones generated by the gatherScalingFromBaseModelica function
     for key in scalingDict.keys():
         if scalingDict[key]["Type"] == "variable":
             # replacing scaling factor
