@@ -1168,15 +1168,27 @@ def writeTextDynamicTrajectoryInitNEW(modelName, dictInitValues, adaptedResFileP
     return trajInitList                                                     
 
 def gatherScalingFromBaseModelica(baseModelica, modelName):
-    # modelica2PyomoCleanConstraint(row,"Static",prefix
+
+    # Function factory that accepts `values` after instantiation
+    def create_replacement_function(values):
+    # This is the function that will be used to replace the brackets' contents
+        def replace_inside_brackets(match):
+            return values.pop(0)  # Pop the first element from values and return it
+        return replace_inside_brackets
+
     scalingDict = {}
     for row in baseModelica:
         if "DER_SCALING" in row:
             modelicaVarName = re.search(r"^\s*Real\s\'(\S+)\'",row).group(1)
+            try:
+                vectorIndex = regex.search(r"(\d+)\]$",modelicaVarName).group(1)
+            except:
+                vectorIndex = 0
             pyomoVarName = modelicaToPyomoVarName(modelicaVarName)
             scalingDict[pyomoVarName] = {}
             scalingDict[pyomoVarName]["ModelicaName"] = modelicaVarName
             scalingDict[pyomoVarName]["Type"] = "variable"
+            scalingDict[pyomoVarName]["vectorIndex"] = vectorIndex
             try:
                 modelicaPrefix = regex.search(r".*(?=\.)", modelicaVarName).group()
                 pyomoPrefix = modelicaToPyomoVarName(modelicaPrefix)
@@ -1185,6 +1197,20 @@ def gatherScalingFromBaseModelica(baseModelica, modelName):
                 pyomoPrefix = ""
                 scalingDict[pyomoVarName]["VarPrefix"] = pyomoPrefix
             scalingFactorModelicaExpression = re.search(f"DER_SCALING: (.*)\\\\\";",row).group(1)
+            if vectorIndex != 0:
+                listScalingVectors = re.findall(r"(\[[\d\,]*\])", scalingFactorModelicaExpression)
+                if listScalingVectors != []:
+                    listNewVectors = []
+                    for elem in listScalingVectors:
+                        if len(eval(elem)) > 1:
+                            correspondingIndex = str(eval(elem)[int(vectorIndex)-1])
+                        else:
+                            correspondingIndex = str(eval(elem)[0]+int(vectorIndex)-1)
+                        listNewVectors.append("[" + correspondingIndex +"]")
+
+                    replacement_function = create_replacement_function(listNewVectors)
+                    scalingFactorModelicaExpression = re.sub(r'\[\d+(?:,\d+)*\]', replacement_function, scalingFactorModelicaExpression)
+            
             scalingFactorPyomoExpression = modelica2PyomoCleanConstraint(scalingFactorModelicaExpression,"Static",pyomoPrefix)
             scalingFactorPyomoExpression = modelica2PyomoCleanConstraint(scalingFactorPyomoExpression,"Static",modelName)
             scalingFactorPyomoExpression = regex.sub(rf"({modelName}.[\w\_\d]+)", rf'{modelName}.scaling_factor[\1]', scalingFactorPyomoExpression)
