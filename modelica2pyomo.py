@@ -849,7 +849,7 @@ def variableSectionAnalysis(baseModelica, modelName, initialEquationStart, stati
                 try:
                     initValue = initializationValues[dictInitValues[varName]][0]
                 except KeyError:
-                    print(f"Could not find an init value for the variable in this line: {line}\nMaybe it is a protected variable! If so, include it in the results file!")
+                    print(f"Could not find an init value for the variable in this line: {line}\nMaybe it is a protected variable! If so, include it in the results file!\npay attention because fixed = false parameters need a value from the result file to be initialized correctly")
                     initValue = 0
             else:
                 # If no initial values are used, the variable is initialized to 0
@@ -887,7 +887,21 @@ def variableSectionAnalysis(baseModelica, modelName, initialEquationStart, stati
     # Write the Pyomo code for the variables
     varPyomoCode = textVarPyomoCode(variablesDict, modelName, staticOrDynamic, initTrajectory="", bounds = bounds)
 
-    return varPyomoCode, variablesDict, fixedFalseDict
+    # Write the Pyomo code for the fixed = false parameters if the initialization result file is available
+    fixedFalseParamPyomoCode = []
+    fixedFalseParamConstrPyomoCode = []
+    if staticOrDynamic == "Static":
+        for paramVar in fixedFalseDict.keys():
+            stringFixedFalseParam = f"{modelName}.{fixedFalseDict[paramVar]['pyomoName']} = Var(within = Reals)\n"
+            fixedFalseParamPyomoCode.append(stringFixedFalseParam)
+            fixedFalseParamConstrPyomoCode.append(f"{modelName}.{fixedFalseDict[paramVar]['pyomoName']}.fix({fixedFalseDict[paramVar]['initialize']})\n\n")
+    if staticOrDynamic == "Dynamic":
+        for paramVar in fixedFalseDict.keys():
+            stringFixedFalseParam = f"{modelName}.{fixedFalseDict[paramVar]['pyomoName']} = Var({modelName}.time, within = Reals)\n"
+            fixedFalseParamPyomoCode.append(stringFixedFalseParam)
+            fixedFalseParamConstrPyomoCode.append(f"for t in timeSteps:\n\t{modelName}.{fixedFalseDict[paramVar]['pyomoName']}[t].fix({fixedFalseDict[paramVar]['initialize']})\n\n")
+
+    return varPyomoCode, fixedFalseParamPyomoCode, fixedFalseParamConstrPyomoCode, variablesDict, fixedFalseDict
 
 # def modelica2pyomoVariable(var):
 
@@ -1655,9 +1669,53 @@ def updateScalingForVariables(variablesDict,scalingDict):
 
     return variablesDict
 
-def initialEquationSectionAnalysis(baseModelica):
+def initialEquationSectionAnalysis(baseModelica, initMode, modelName, equationStart, initialEquationStart, 
+                                  variablesDict, statesDict, dictInitValues, fixedFalseDict):
     # Takes care of fixed = false parameters and initial conditions
-    return
+    
+    if initMode == "KEEP-MODELICA" and (initialEquationStart == equationStart or initialEquationStart+1 == equationStart):
+        initialConditionsCode = []
+        return initialConditionsCode
+    elif initMode == "FIX-STATES" and len(statesDict) == 0:
+        initialConditionsCode = []
+        return initialConditionsCode
+
+    c_index = 1
+    initialConditionsPyomoCode = []
+    
+    if initMode == "KEEP-MODELICA":
+        if len(fixedFalseDict) == 0:
+            for line in baseModelica[initialEquationStart+1:equationStart]:
+                if " homotopy(" in line:
+                    line = replaceHomotopyInConstraint(line)
+                # Convert tanh operator into exponential form
+                if " tanh(" in line:
+                    line = replaceTanhInConstraint(line)
+                # Here add function to remove PositiveMax!!!!!!
+                if "PositiveMax" in line:
+                    pass  
+
+                cleanRow = modelica2PyomoCleanConstraint(line,"Dynamic",modelName, initialConstraint = True)     
+                initialConditionsPyomoCode.append(f"{modelName}.c_init{c_index} = Constraint(expr = {cleanRow})\n")
+                c_index += 1
+            return initialConditionsPyomoCode
+        
+        else:
+            print("At least a fixed = false parameter is present in the Modelica code, but, since the associated equation cannot be inferred, the KEEP-MODELICA option cannot be used. Trying to use the FIX-STATES option...")
+    
+    # Here it continues with the FIXED-STATES options if the KEEP-MODELICA options is not selected or unsuccessful
+    for state in statesDict.keys():
+        # Look for the initial value of the state in the initializationValues dictionary (DyMat)
+        try:
+            valueInit = variablesDict[state]["initialize"]
+        except:
+            print(f"Could not find the initial value for state {state}: setting it to 0!")
+            valueInit = 0
+        # Append to the list of Pyomo code the string for the initial condition constraint
+        initialConditionsCode.append(f"{modelName}.c_init{c_index} = Constraint(expr = {modelName}.{statesDict[state]}[0.0] == {valueInit})\n")
+        c_index += 1
+    
+    return initialConditionsPyomoCode
 
 def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, staticOrDynamic, initConditions, initTrajectory,
          customLinesBeforeSettings, customLinesAfterSettings, tStart = 0, tEnd = 1, bounds = True,
@@ -1792,8 +1850,14 @@ def m2p(modelicaModel, pyomoModel, modelicaResults, modelName, solverName, stati
     if varPyomoCode != []:
         varPyomoCode.insert(0,"# Writing the code for variable instantiation\n")
     
-    # varPyomoCodeV2, variablesDictV2, fixedFalseDictV2 = variableSectionAnalysis(baseModelica, modelName, initialEquationStart, staticOrDynamic, bounds, initializationValues = initializationValues, dictInitValues = dictInitValues, scalingUpdateDict = scalingDict)
-    
+    varPyomoCodeV2, fixedFalseParamPyomoCodeV2, fixedFalseParamConstrPyomoCodeV2, variablesDictV2, fixedFalseDictV2 = variableSectionAnalysis(baseModelica, modelName, initialEquationStart, staticOrDynamic, bounds, initializationValues = initializationValues, dictInitValues = dictInitValues, scalingUpdateDict = scalingDict)
+    if varPyomoCodeV2 != []:
+        varPyomoCodeV2.insert(0,"# Writing the code for variable instantiation\n")
+    if fixedFalseParamPyomoCodeV2 != []:
+        fixedFalseParamPyomoCodeV2.insert(0,"# Writing the code for the fixed = false parameter variable instantiation\n")
+    if fixedFalseParamConstrPyomoCodeV2 != []:
+        fixedFalseParamConstrPyomoCodeV2.insert(0,"# Writing the code for fixing constraint for the fixed = false parameters\n")
+
     # Fixing variable and creating constraints 
     # The following list contains Pyomo code (each entry is a line of code)
     # Generation also of a dictionary of states and their corresponding Pyomo variables and a dictionary of log substitutions
