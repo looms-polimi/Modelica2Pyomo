@@ -7,11 +7,11 @@ sys.path.append(pathParser)
 import modelica2pyomo as ps
 
 # PATHS
-modelica_model = "" # String containing the path of the BaseModelica file obtained instantiating the Modelica file with exampleInstantiation.mos
+modelicaModelPath = "" # String containing the path of the BaseModelica file obtained instantiating the Modelica file with exampleInstantiation.mos
 
-modelicaResults = "" # String containing the path of the results file from a simulation of the Modelica model to initialize the optimization problem
+modelicaResultsPath = "" # String containing the path of the results file from a simulation of the Modelica model to initialize the optimization problem
 
-pyomoModel = "" # String containing the path to the newly created Pyomo file
+pyomoModelPath = "" # String containing the path to the newly created Pyomo file
 
 # MODEL AND SOLVER
 modelName = "m"
@@ -19,8 +19,8 @@ solverName = "ipopt"
 
 # Static or Dynamic problem
 staticOrDynamic = "Dynamic"  # use either "Static" or "Dynamic"
-initConditions = "FIX-STATES" # use either "FIX-STATES" or "KEEP-MODELICA"
-initTrajectory = "Dynamic"  # use either "Constant" or "Dynamic"
+initConditionsOption = "FIX-STATES" # use either "FIX-STATES" or "KEEP-MODELICA"
+initialGuessTrajectoryOption = "Dynamic"  # use either "Constant" or "Dynamic"
 
 # TIME DISCRETIZATION FOR DYNAMIC PROBLEM
 tStart = 0
@@ -40,7 +40,8 @@ collocationOptions["scheme"] = "LAGRANGE-RADAU"
 # finiteDiffOptions["scheme"] = "BACKWARD"
 
 customLinesBeforeSettings = """
-m.obj = Objective(expr = m.x, sense = minimize) # THE OBJECTIVE FUNCTION SHOULD BE PLACED HERE
+# Objective function of the optimization problem
+m.obj = Objective(expr = 1, sense = minimize)
 """
 
 customLinesAfterSettings = """
@@ -48,29 +49,30 @@ customLinesAfterSettings = """
 
 
 
-ps.m2p(modelica_model, pyomoModel, modelicaResults, modelName, solverName, staticOrDynamic = staticOrDynamic, 
-        initConditions = initConditions, initTrajectory = initTrajectory,customLinesBeforeSettings=customLinesBeforeSettings, 
+ps.m2p(modelicaModelPath, pyomoModelPath, modelicaResultsPath, modelName, solverName, staticOrDynamic = staticOrDynamic, 
+        initConditionsOption = initConditionsOption, initialGuessTrajectoryOption = initialGuessTrajectoryOption, customLinesBeforeSettings = customLinesBeforeSettings, 
         customLinesAfterSettings=customLinesAfterSettings, tStart = tStart, tEnd = tEnd,
-        bounds = True, subLog = True, dynTransfOpt=collocationOptions)
+        bounds = True, subLog = True, useResultsForTables = False, dynTransfOpt=collocationOptions)
 
 # Input description:
-    # - modelicaModel: string containing the path of the modelica model to translate into a Pyomo model
-    # - pyomoModel: string containing path of the Pyomo model to be generated
-    # - modelicaResults: string containing path of the optional modelica results file
+    # - modelicaModelPath: string containing the path of the modelica model to translate into a Pyomo model
+    # - pyomoModelPath: string containing path of the Pyomo model to be generated
+    # - modelicaResultsPath: string containing path of the optional modelica results file
     # - modelName = string containing the name of the Pyomo model instance (for example m.)
     # - solverName = string containing the name of the optimization solver to be called with Pyomo with the SolverFactory object
     # - staticOrDynamic = string that is either "Static" or "Dynamic" to tell the compiler if the optimization problem is either static or dynamic
-    # - initConditions = string that is either "KEEP-MODELICA" or "FIX-STATES" to tell the compiler if it should keep the initial equations of the 
+    # - initConditionsOption = string that is either "KEEP-MODELICA" or "FIX-STATES" to tell the compiler if it should keep the initial equations of the 
     #                       Modelica model or use the results file to fix the values of the variables appearing in the der() operator
     #                       at time instant zero
-    # - initTrajectory: string specifying either the initialization follows a "Constant" or "Dynamic" trajectory (options="Constant" or "Dynamic").
     # - customLinesBeforeSettings: string containing the 
     # - customLinesAfterSettings: string containing the 
     # - tStart: float containing the start time of the dynamic simulation
     # - tEnd: float containing the end time of the dynamic simulation
+    # - initialGuessTrajectoryOption: string specifying either the initialization follows a "Constant" or "Dynamic" trajectory (options="Constant" or "Dynamic").
     # - bounds: boolean (True or False). If True enforce bounds through the "bounds" keyword in the Var declaration *based on min and max attributes of 
     #               Base Modelica model. If False, do not use "bounds" keyword
     # - subLog: boolean (True or False). If true perform log substitution with equivalent exponential expression
+    # - useResultsForTables: boolean (True or False). If True, table entries are retrieved from the Modelica result file; if False, the BaseModelica code is translated
     # - dynTransfOpt: dictionary with options for the collocation or finite difference discretization.
     #                       Example for collocation:
     #                           dynTransfOpt = dict()
