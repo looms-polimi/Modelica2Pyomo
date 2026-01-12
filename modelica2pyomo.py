@@ -426,14 +426,14 @@ def timeTablesConstraintPyomoCode(timeTablesDict, modelName, staticOrDynamic, in
 
     return pyomoTableCode
 
-def stepsAndRamps(baseModelica, modelName, equationStart):
+def stepsAndRamps(baseModelica, modelName, equationStart, staticOrDynamic):
 
     baseModelica, stepsAndRampsDict = extractStepsAndRamps(baseModelica, equationStart)
 
     if stepsAndRampsDict == {}:
         stepsAndRampsPyomoCode = []
     else:
-        stepsAndRampsPyomoCode = pyomoStepAndRamps(stepsAndRampsDict, modelName)
+        stepsAndRampsPyomoCode = pyomoStepAndRamps(stepsAndRampsDict, modelName, staticOrDynamic)
         if stepsAndRampsPyomoCode != []:
             stepsAndRampsPyomoCode.insert(0,"\n# Code for the translation of steps and ramps\n")    
 
@@ -471,48 +471,72 @@ def extractStepsAndRamps(baseModelica, equationStart):
 
     return baseModelica, stepsAndRampsDict
 
-def pyomoStepAndRamps(stepsAndRampsDict, modelName):
+def pyomoStepAndRamps(stepsAndRampsDict, modelName, staticOrDynamic):
     # This function writes the Pyomo code to translate step and ramp blocks
-    pyomoString = ["for h in timeSteps:\n"]
-    for varName in stepsAndRampsDict.keys():
-        if len(stepsAndRampsDict[varName]) == 3:
-            # This is a step without offset
-            startTime = stepsAndRampsDict[varName][0]
-            valueBefore = stepsAndRampsDict[varName][1]
-            valueAfter = stepsAndRampsDict[varName][2]
-            stringStep = f"\tif h < {startTime}:\n\t\t{modelName}.{varName}[h].fix({valueBefore})\n\telse:\n\t\t{modelName}.{varName}[h].fix({valueAfter})\n"
-            pyomoString.append(stringStep)
-        elif len(stepsAndRampsDict[varName]) == 4:
-            # This is a step with offset
-            offset = stepsAndRampsDict[varName][0]
-            startTime = stepsAndRampsDict[varName][1]
-            valueBefore = stepsAndRampsDict[varName][2]
-            valueAfter = stepsAndRampsDict[varName][3]
-            stringStep = f"\tif h < {startTime}:\n\t\t{modelName}.{varName}[h].fix({valueBefore} + {offset})\n\telse:\n\t\t{modelName}.{varName}[h].fix({valueAfter} + {offset})\n"
-            pyomoString.append(stringStep)
-        elif len(stepsAndRampsDict[varName]) == 5:
-            # This is a ramp without offset
-            startTime = stepsAndRampsDict[varName][0]
-            valueBefore = stepsAndRampsDict[varName][1]
-            stopTime = stepsAndRampsDict[varName][2]
-            exprDuringRamp = stepsAndRampsDict[varName][3]
-            exprDuringRamp = exprDuringRamp.replace("time", "h")
-            valueAfter = stepsAndRampsDict[varName][4]
-            stringRamp = f"\tif h < {startTime}:\n\t\t{modelName}.{varName}[h].fix({valueBefore})\n\telif h < {stopTime}:\n\t\t{modelName}.{varName}[h].fix({exprDuringRamp})\n\telse:\n\t\t{modelName}.{varName}[h].fix({valueAfter})\n"
-            pyomoString.append(stringRamp)
-        elif len(stepsAndRampsDict[varName]) == 6:
-            # This is a ramp with offset
-            offset = stepsAndRampsDict[varName][0]
-            startTime = stepsAndRampsDict[varName][1]
-            valueBefore = stepsAndRampsDict[varName][2]
-            stopTime = stepsAndRampsDict[varName][3]
-            exprDuringRamp = stepsAndRampsDict[varName][4]
-            exprDuringRamp = exprDuringRamp.replace("time", "h")
-            valueAfter = stepsAndRampsDict[varName][5]
-            stringRamp = f"\tif h < {startTime}:\n\t\t{modelName}.{varName}[h].fix({valueBefore} + {offset})\n\telif h < {stopTime}:\n\t\t{modelName}.{varName}[h].fix({exprDuringRamp} + {offset})\n\telse:\n\t\t{modelName}.{varName}[h].fix({valueAfter} + {offset})\n"
-            pyomoString.append(stringRamp)
-        else:
-            print("Error handling the data for step and ramps!")
+    if staticOrDynamic == "Dynamic":
+        pyomoString = ["for h in timeSteps:\n"]
+        for varName in stepsAndRampsDict.keys():
+            if len(stepsAndRampsDict[varName]) == 3:
+                # This is a step without offset
+                startTime = stepsAndRampsDict[varName][0]
+                valueBefore = stepsAndRampsDict[varName][1]
+                valueAfter = stepsAndRampsDict[varName][2]
+                stringStep = f"\tif h < {startTime}:\n\t\t{modelName}.{varName}[h].fix({valueBefore})\n\telse:\n\t\t{modelName}.{varName}[h].fix({valueAfter})\n"
+                pyomoString.append(stringStep)
+            elif len(stepsAndRampsDict[varName]) == 4:
+                # This is a step with offset
+                offset = stepsAndRampsDict[varName][0]
+                startTime = stepsAndRampsDict[varName][1]
+                valueBefore = stepsAndRampsDict[varName][2]
+                valueAfter = stepsAndRampsDict[varName][3]
+                stringStep = f"\tif h < {startTime}:\n\t\t{modelName}.{varName}[h].fix({valueBefore} + {offset})\n\telse:\n\t\t{modelName}.{varName}[h].fix({valueAfter} + {offset})\n"
+                pyomoString.append(stringStep)
+            elif len(stepsAndRampsDict[varName]) == 5:
+                # This is a ramp without offset
+                startTime = stepsAndRampsDict[varName][0]
+                valueBefore = stepsAndRampsDict[varName][1]
+                stopTime = stepsAndRampsDict[varName][2]
+                exprDuringRamp = stepsAndRampsDict[varName][3]
+                exprDuringRamp = exprDuringRamp.replace("time", "h")
+                valueAfter = stepsAndRampsDict[varName][4]
+                stringRamp = f"\tif h < {startTime}:\n\t\t{modelName}.{varName}[h].fix({valueBefore})\n\telif h < {stopTime}:\n\t\t{modelName}.{varName}[h].fix({exprDuringRamp})\n\telse:\n\t\t{modelName}.{varName}[h].fix({valueAfter})\n"
+                pyomoString.append(stringRamp)
+            elif len(stepsAndRampsDict[varName]) == 6:
+                # This is a ramp with offset
+                offset = stepsAndRampsDict[varName][0]
+                startTime = stepsAndRampsDict[varName][1]
+                valueBefore = stepsAndRampsDict[varName][2]
+                stopTime = stepsAndRampsDict[varName][3]
+                exprDuringRamp = stepsAndRampsDict[varName][4]
+                exprDuringRamp = exprDuringRamp.replace("time", "h")
+                valueAfter = stepsAndRampsDict[varName][5]
+                stringRamp = f"\tif h < {startTime}:\n\t\t{modelName}.{varName}[h].fix({valueBefore} + {offset})\n\telif h < {stopTime}:\n\t\t{modelName}.{varName}[h].fix({exprDuringRamp} + {offset})\n\telse:\n\t\t{modelName}.{varName}[h].fix({valueAfter} + {offset})\n"
+                pyomoString.append(stringRamp)
+            else:
+                print("Error handling the data for step and ramps!")
+    else:
+        pyomoString = []
+        for varName in stepsAndRampsDict.keys():
+            if len(stepsAndRampsDict[varName]) == 3:
+                valueBefore = stepsAndRampsDict[varName][1]
+                stringStep = f"{modelName}.{varName}.fix({valueBefore})\n"
+                pyomoString.append(stringStep)
+            elif len(stepsAndRampsDict[varName]) == 4:
+                offset = stepsAndRampsDict[varName][0]
+                valueBefore = stepsAndRampsDict[varName][2]
+                stringStep = f"{modelName}.{varName}.fix({valueBefore} + {offset})\n"
+                pyomoString.append(stringStep)
+            elif len(stepsAndRampsDict[varName]) == 5:
+                valueBefore = stepsAndRampsDict[varName][1]
+                stringRamp = f"{modelName}.{varName}.fix({valueBefore})\n"
+                pyomoString.append(stringStep)
+            elif len(stepsAndRampsDict[varName]) == 6:
+                offset = stepsAndRampsDict[varName][0]
+                valueBefore = stepsAndRampsDict[varName][2]
+                stringRamp = f"{modelName}.{varName}.fix({valueBefore} + {offset})\n"
+                pyomoString.append(stringStep)
+            else:
+                print("Error handling the data for step and ramps!")
     
     # pyomoString.append("\n\n")
 
@@ -848,9 +872,9 @@ def variableSectionAnalysis(baseModelica, modelName, initialEquationStart, stati
         foundFixedFalseParam = False
         if "Real" in line:
             # Skip the line if it is a constant
-            if "constant" in line:
+            if "constant " in line:
                 continue
-            elif "parameter" in line:
+            elif "parameter " in line:
                 # Check if the var is a fixed = false parameter and save variable name
                 if "fixed = false" in line:
                     varName = regex.search(r"(?<=(final\sparameter|parameter)\sReal\s)[\w\.]+", line).group()
@@ -1067,12 +1091,14 @@ def modelica2pyomoConstraint(line, modelName, staticOrDynamic, substituteLogarit
     if "PositiveMax" in line:
         pass 
     
+    fixedConstraint = False
+
     # Check if the constraint is a variable assignement to a variable and convert the contraint to a variable fixing.
     if varFixing:
         line, fixedConstraint = replaceConstraintWithVariableFixing(line, modelName)
         if fixedConstraint:
             # If successfully converted constraint, return line
-            return line, logArguments
+            return line, logArguments, fixedConstraint
    
     if staticOrDynamic == "Static":
         line = modelica2PyomoCleanConstraint(line,staticOrDynamic,modelName)
@@ -1088,7 +1114,7 @@ def modelica2pyomoConstraint(line, modelName, staticOrDynamic, substituteLogarit
         if substituteLogarithms:
             line, logArguments = replaceLogarithmWithExponential(line, modelName, staticOrDynamic, logArguments = logArguments)
 
-        return line, logArguments
+    return line, logArguments, fixedConstraint
 
 def equationSectionAnalysis(baseModelica, equationStart, modelName, staticOrDynamic, substituteLogarithms = False, varFixing = False):
     # This function outputs the PyomoCode of the contraints, a dictionary with the states and info about logarithms
@@ -1127,9 +1153,12 @@ def equationSectionAnalysis(baseModelica, equationStart, modelName, staticOrDyna
             if staticOrDynamic == "Dynamic":
                 # Update the state derivative dictionary with the newly found derivatives
                 statesDict = findStateDerivativesInModelicaEquation(line, statesDict = statesDict)
-        pyomoLine, logArguments = modelica2pyomoConstraint(line, modelName, staticOrDynamic, substituteLogarithms, logArguments = logArguments, varFixing = varFixing)
+        pyomoLine, logArguments, fixedConstraint = modelica2pyomoConstraint(line, modelName, staticOrDynamic, substituteLogarithms, logArguments = logArguments, varFixing = varFixing)
 
-        if staticOrDynamic == "Static":
+        if fixedConstraint == True:
+            constrString = pyomoLine+"\n\n"
+        
+        elif staticOrDynamic == "Static":
             # Build the static constraint line for the Pyomo code
             constrString = modelName + f".constr{i} = Constraint(expr = " + pyomoLine + ")\n\n"
             constraintsPyomoCode.append(constrString)
@@ -1144,7 +1173,8 @@ def equationSectionAnalysis(baseModelica, equationStart, modelName, staticOrDyna
             constrString += modelName + f".constr{i} = Constraint({modelName}.time, rule = _constr{i})\n\n"
         
         # Update constraint index
-        i += 1
+        if fixedConstraint == False:
+            i += 1
         constraintsPyomoCode.append(constrString)
     
     if substituteLogarithms:
@@ -1905,7 +1935,8 @@ def m2p(modelicaModelPath, pyomoModelPath, modelicaResultsPath, modelName, solve
     [baseModelica, 
      pyomoCodeStepAndRamps] = stepsAndRamps(baseModelica, 
                                             modelName, 
-                                            equationStart)
+                                            equationStart,
+                                            staticOrDynamic)
 
     # Analyse the variable section of the BaseModelica code to generate the Pyomo code for the variables and for the fixed = false parameters
     # Generate also a dictionary containing information about the variables and one containing information about the fixed = fasle parameters
