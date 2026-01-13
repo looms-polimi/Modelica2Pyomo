@@ -1885,7 +1885,12 @@ def m2p(modelicaModelPath, pyomoModelPath, modelicaResultsPath, modelName, solve
         numOfIntervals = eval(dynTransfOpt["nfe"])
         m.time = ContinuousSet(initialize = np.linspace(tStart,tEnd,numOfIntervals+1))
         discretizer = TransformationFactory(dynTransfOpt["methodeName"])
-        discretizer.apply_to(m, nfe=numOfIntervals, ncp=eval(dynTransfOpt["ncp"]), scheme=dynTransfOpt["scheme"])
+        if dynTransfOpt["methodeName"] == "dae.collocation":
+            discretizer.apply_to(m, nfe=numOfIntervals, ncp=eval(dynTransfOpt["ncp"]), scheme=dynTransfOpt["scheme"])
+        elif dynTransfOpt["methodeName"] == "dae.finite_difference":
+            discretizer.apply_to(m, nfe=numOfIntervals, scheme=dynTransfOpt["scheme"])
+        else:
+            print(f"Discretization method {dynTransfOpt['methodeName']} not supported!")
         timeSteps = [h for h in m.time]
 
         # The next two functions were used, but now I've commented them... the adaptedInitDict function should take care of everything
@@ -2037,7 +2042,8 @@ import re
 {modelName}.scaling_factor = Suffix(direction=Suffix.EXPORT)
 """
     # This string defines the time related variables if the problem is a dynamic one
-    time = f"""
+    if dynTransfOpt["methodeName"] == "dae.collocation":
+        time = f"""
 # Writing the code for the time variable instantiation
 numOfIntervals = {dynTransfOpt["nfe"]}
 ncp = {dynTransfOpt["ncp"]}
@@ -2045,6 +2051,15 @@ tStart = {tStart}
 tEnd = {tEnd}
 {modelName}.time = ContinuousSet(initialize = np.linspace(tStart,tEnd,numOfIntervals+1))
 dt = tEnd/(numOfIntervals+1)/ncp
+"""
+    else:
+        time = f"""
+# Writing the code for the time variable instantiation
+numOfIntervals = {dynTransfOpt["nfe"]}
+tStart = {tStart}
+tEnd = {tEnd}
+{modelName}.time = ContinuousSet(initialize = np.linspace(tStart,tEnd,numOfIntervals+1))
+dt = tEnd/(numOfIntervals+1)
 """
 
     if staticOrDynamic == "Dynamic":
